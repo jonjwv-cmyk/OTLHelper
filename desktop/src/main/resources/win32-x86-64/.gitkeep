@@ -1,0 +1,4 @@
+# §TZ-DESKTOP-NATIVE-2026-05 — placeholder для JNA classpath директории.
+# CI workflow `release-desktop.yml` (Win runner) собирает NativeUtils.dll
+# через CMake + WebView2 SDK NuGet и кладёт сюда. JNA автоматически
+# находит DLL через classpath resource lookup.

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- App background -->
+    <color name="bg_app">#FF111111</color>
+
+    <!-- Surfaces -->
+    <color name="surface_card">#FF1A1A1A</color>
+    <color name="surface_secondary">#FF1A1A1A</color>
+
+    <!-- Accent (neutral near-white, subtle glow on dark) -->
+    <color name="accent">#FFE0E0E0</color>
+    <color name="accent_dim">#1AE0E0E0</color>
+
+    <!-- Text -->
+    <color name="text_primary">#FFF5F5F5</color>
+    <color name="text_secondary">#FFB0B0B0</color>
+    <color name="text_tertiary">#FF888888</color>
+    <color name="text_link">#FFE0E0E0</color>
+
+    <!-- Structure -->
+    <color name="divider">#FF2A2A2A</color>
+    <color name="border">#FF2A2A2A</color>
+
+    <!-- Chat -->
+    <color name="chat_bubble_own">#FF2D2D2D</color>
+    <color name="chat_bubble_other">#FF1A1A1A</color>
+
+    <!-- Badge (dark neutral, readable with white text) -->
+    <color name="badge_bg">#FF5A5A5A</color>
+
+    <!-- Status (muted) -->
+    <color name="status_error">#FF7F1D1D</color>
+    <color name="status_ok">#FF14532D</color>
+
+    <!-- Poll confirm button states -->
+    <color name="btn_confirm_active">#FF4A4A4A</color>
+    <color name="btn_voted_green">#FF22C55E</color>
+
+    <!-- Tab unread glow -->
+    <color name="tab_unread_glow">#FF22C55E</color>
+
+    <!-- Mol search card surfaces -->
+    <color name="surface_mol_card">#FF242424</color>
+    <color name="surface_warehouse">#FF25251E</color>
+    <color name="status_ok_surface">#FF182E1C</color>
+    <color name="status_error_surface">#FF2E1818</color>
+</resources>

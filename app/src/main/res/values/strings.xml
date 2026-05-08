@@ -1,0 +1,73 @@
+<resources>
+    <string name="app_name">OTL Helper</string>
+
+    <!-- Tabs -->
+    <string name="tab_news">Новости</string>
+    <string name="tab_search">Поиск</string>
+    <string name="tab_specialists">Специалисты</string>
+    <string name="tab_requests">Обращения</string>
+
+    <!-- Action menu -->
+    <string name="menu_account">Аккаунт</string>
+    <string name="menu_add_poll">Добавить опрос</string>
+    <string name="menu_system_control">Управление</string>
+    <string name="menu_logout">Выход</string>
+
+    <!-- Roles -->
+    <string name="role_user">Пользователь</string>
+    <string name="role_admin">Администратор</string>
+    <string name="role_superadmin">Суперадминистратор</string>
+
+    <!-- Empty states -->
+    <string name="empty_default_title">Пока пусто</string>
+    <string name="empty_search_subtitle">Введи склад / фио / тел. / mail</string>
+
+    <!-- Search hints -->
+    <string name="search_hint_warehouse">Склад</string>
+    <string name="search_hint_fio">ФИО</string>
+    <string name="search_hint_phone">Телефон</string>
+    <string name="search_hint_mail">Mail</string>
+
+    <!-- Widget -->
+    <string name="widget_description">Непрочитанные новости и сообщения</string>
+
+    <!-- Splash -->
+    <string name="splash_starting">Запускаем…</string>
+    <string name="splash_connecting">Подключаемся…</string>
+
+    <!-- Login -->
+    <string name="login_title">Вход в приложение</string>
+    <string name="login_hint_login">Логин</string>
+    <string name="login_hint_password">Пароль</string>
+    <string name="login_btn">Войти</string>
+
+    <!-- Chat navigation -->
+    <string name="btn_back_to_list">Назад</string>
+
+    <!-- Confirmations -->
+    <string name="confirm_yes">Да</string>
+    <string name="confirm_no">Нет</string>
+    <string name="confirm_vote_title">Подтвердить выбор</string>
+    <string name="confirm_vote_msg">Подтвердить выбранные варианты?</string>
+    <string name="confirm_logout_title">Выход</string>
+    <string name="confirm_logout_msg">Выйти из аккаунта?</string>
+
+    <!-- Poll -->
+    <string name="poll_badge">Опрос</string>
+    <string name="poll_confirm_btn">Подтвердить</string>
+
+    <!-- Change Password -->
+    <string name="change_password_title">Смена пароля</string>
+    <string name="change_password_subtitle">Введите текущий и новый пароль</string>
+    <string name="change_password_hint_old">Текущий пароль</string>
+    <string name="change_password_hint_new">Новый пароль</string>
+    <string name="change_password_hint_confirm">Подтвердите новый пароль</string>
+    <string name="change_password_btn_save">Сохранить</string>
+    <string name="change_password_btn_cancel">Отмена</string>
+    <string name="change_password_fill_all">Заполните все поля</string>
+    <string name="change_password_too_short">Новый пароль — минимум 4 символа</string>
+    <string name="change_password_mismatch">Пароли не совпадают</string>
+    <string name="change_password_wrong_old">Неверный текущий пароль</string>
+    <string name="change_password_no_connection">Нет соединения</string>
+    <string name="change_password_retry">Попробуйте ещё раз</string>
+</resources>

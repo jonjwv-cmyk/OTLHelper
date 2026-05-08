@@ -1,0 +1,39 @@
+*.iml
+.gradle
+.kotlin/
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+build/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+.claude/worktrees/
+.wrangler/
+.claude/
+
+# §TZ-DESKTOP-DIST 0.5.2 — generated Win icon (создаётся в CI из app.iconset/)
+desktop/icons/app.ico
+
+# JVM crash dumps (prebuildKcefBundle на Mac пишет их при init crash)
+hs_err_pid*.log
+replay_pid*.log
+
+# §TZ-DESKTOP-NATIVE-2026-05 — Win native build artifacts.
+# CMake build dir + NuGet packages + built DLL (CI собирает inline).
+desktop/native/win/NativeUtils/build/
+desktop/native/win/NativeUtils/packages/
+desktop/src/main/resources/win32-x86-64/*.dll
+desktop/src/main/resources/win32-x86-64/*.pdb
+
+# §TZ-DESKTOP-DIST 0.8.59 — bundled VLC (Win). CI скачивает с official VLC
+# в desktop/app-resources/windows/vlc/ перед сборкой EXE. Локально можно
+# создать вручную для тестов.
+desktop/app-resources/

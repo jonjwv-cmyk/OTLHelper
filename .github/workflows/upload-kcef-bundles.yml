@@ -1,0 +1,136 @@
+name: Upload KCEF Bundles
+
+# §TZ-DESKTOP-DIST 0.5.2 — one-time prebuild + upload Chromium (KCEF) bundles
+# в R2 для каждой платформы. Запускается вручную через workflow_dispatch при
+# смене версии KCEF library в build.gradle.kts (или для bootstrap первой
+# версии). Клиент при первом запуске Sheets качает соответствующий tarball
+# с api.otlhelper.com/kcef-bundle/jcef-<os>-<arch>.tar.gz.
+
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Какие платформы билдить'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - macos-arm64
+          - macos-amd64
+
+env:
+  R2_BUCKET: otl-app-releases
+
+jobs:
+  build-windows:
+    if: ${{ inputs.platforms == 'all' || inputs.platforms == 'windows' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Pre-download JCEF runtime (Windows amd64)
+        shell: bash
+        run: |
+          ./gradlew :desktop:prebuildKcefBundle --no-daemon --info
+      - name: Pack bundle into tar.gz
+        shell: bash
+        run: |
+          # Используем relative path — Win bash + tar плохо ладят с
+          # абсолютными путями вида D:\a\... ($GITHUB_WORKSPACE).
+          cd desktop/build/kcef-prebundle
+          ls -la
+          tar -czf ../../../jcef-windows-amd64.tar.gz .
+          cd ../../..
+          ls -la jcef-windows-amd64.tar.gz
+      - name: Install wrangler
+        shell: bash
+        run: npm install -g wrangler
+      - name: Upload bundle to R2
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          wrangler r2 object put "$R2_BUCKET/kcef-bundle/jcef-windows-amd64.tar.gz" \
+            --file=jcef-windows-amd64.tar.gz --remote
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jcef-windows-amd64
+          path: jcef-windows-amd64.tar.gz
+          retention-days: 7
+
+  build-macos-arm64:
+    if: ${{ inputs.platforms == 'all' || inputs.platforms == 'macos-arm64' }}
+    # macos-latest = Apple Silicon (arm64) для GH Actions runners 2024+
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Pre-download JCEF runtime (macOS arm64)
+        run: |
+          ./gradlew :desktop:prebuildKcefBundle --no-daemon --info
+      - name: Pack bundle into tar.gz
+        run: |
+          cd desktop/build/kcef-prebundle
+          ls -la
+          tar -czf "$GITHUB_WORKSPACE/jcef-macos-arm64.tar.gz" .
+          ls -la "$GITHUB_WORKSPACE/jcef-macos-arm64.tar.gz"
+      - name: Install wrangler
+        run: npm install -g wrangler
+      - name: Upload bundle to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          wrangler r2 object put "$R2_BUCKET/kcef-bundle/jcef-macos-arm64.tar.gz" \
+            --file="$GITHUB_WORKSPACE/jcef-macos-arm64.tar.gz" --remote
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jcef-macos-arm64
+          path: jcef-macos-arm64.tar.gz
+          retention-days: 7
+
+  build-macos-amd64:
+    if: ${{ inputs.platforms == 'all' || inputs.platforms == 'macos-amd64' }}
+    # macos-13 — последний Intel runner от GitHub. macos-14+ это Apple Silicon.
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Pre-download JCEF runtime (macOS amd64)
+        run: |
+          ./gradlew :desktop:prebuildKcefBundle --no-daemon --info
+      - name: Pack bundle into tar.gz
+        run: |
+          cd desktop/build/kcef-prebundle
+          ls -la
+          tar -czf "$GITHUB_WORKSPACE/jcef-macos-amd64.tar.gz" .
+          ls -la "$GITHUB_WORKSPACE/jcef-macos-amd64.tar.gz"
+      - name: Install wrangler
+        run: npm install -g wrangler
+      - name: Upload bundle to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          wrangler r2 object put "$R2_BUCKET/kcef-bundle/jcef-macos-amd64.tar.gz" \
+            --file="$GITHUB_WORKSPACE/jcef-macos-amd64.tar.gz" --remote
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jcef-macos-amd64
+          path: jcef-macos-amd64.tar.gz
+          retention-days: 7

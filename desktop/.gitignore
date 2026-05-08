@@ -1,0 +1,7 @@
+# Gradle build output — никогда не коммитим, пересобирается локально.
+build/
+
+# §TZ-DESKTOP-DIST 0.5.1 — icons/app.iconset/ ТЕПЕРЬ commit'им: CI Win runner
+# конвертирует из этих PNG в multi-res .ico перед jpackage. Раньше нужен был
+# только .icns под Mac, но Win-pipeline их теперь использует тоже.
+# (Раскомментировать только если перейдём на готовый .ico в репо.)

@@ -1,0 +1,25 @@
+<!--
+    Monochrome variant — consumed by themed-icon on Android 13+.
+    A single flat silhouette, the launcher tints it with the wallpaper palette.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,24
+                         C42,24 32,34 32,46
+                         C32,54 36,62 42,70
+                         C47,77 51,82 54,86
+                         C57,82 61,77 66,70
+                         C72,62 76,54 76,46
+                         C76,34 66,24 54,24 Z
+                         M54,36
+                         C49,36 45,40 45,45
+                         C45,50 49,54 54,54
+                         C59,54 63,50 63,45
+                         C63,40 59,36 54,36 Z" />
+</vector>

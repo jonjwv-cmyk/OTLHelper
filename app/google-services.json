@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1026930987387",
+    "project_id": "otl-helper",
+    "storage_bucket": "otl-helper.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1026930987387:android:6caf733b6d30f0b1a02dde",
+        "android_client_info": {
+          "package_name": "com.example.otlhelper"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAzWdQNDak76S5dd3IpLkwqDwyOpuNvpcU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

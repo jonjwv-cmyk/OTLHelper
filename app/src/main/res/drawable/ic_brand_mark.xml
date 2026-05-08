@@ -1,0 +1,40 @@
+<!--
+    Brand mark used EVERYWHERE the product needs to identify itself:
+      - adaptive-icon foreground (launcher)
+      - system splash animated icon (Android 12+)
+      - home-screen widget icon slot
+      - any in-app "app logo" slot
+
+    Geometry is perfectly symmetric along the vertical axis, so every launcher
+    mask (circle, squircle, rounded-square, teardrop) gets the same optical
+    balance — no "clipped on one side" feeling.
+
+    Path is authored on a 108×108 viewport with the full mark inside the safe
+    zone (24..84 in both axes per adaptive-icon spec).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Pin body — golden fill, centered on x=54 -->
+    <path
+        android:fillColor="#F7C657"
+        android:pathData="M54,24
+                         C42,24 32,34 32,46
+                         C32,54 36,62 42,70
+                         C47,77 51,82 54,86
+                         C57,82 61,77 66,70
+                         C72,62 76,54 76,46
+                         C76,34 66,24 54,24 Z" />
+
+    <!-- Inner cutout — dark, matches adaptive-icon background color -->
+    <path
+        android:fillColor="#1A1A1C"
+        android:pathData="M54,36
+                         C49,36 45,40 45,45
+                         C45,50 49,54 54,54
+                         C59,54 63,50 63,45
+                         C63,40 59,36 54,36 Z" />
+</vector>

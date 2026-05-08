@@ -1,0 +1,145 @@
+[versions]
+agp = "8.13.2"
+kotlin = "2.0.21"
+ksp = "2.0.21-1.0.26"
+coreKtx = "1.16.0"
+junit = "4.13.2"
+junitVersion = "1.1.5"
+# Real org.json implementation for unit tests — Android's stubs-only org.json
+# throws NPE on JVM. See: https://developer.android.com/training/testing/local-tests
+orgJson = "20240303"
+espressoCore = "3.5.1"
+appcompat = "1.7.1"
+material = "1.13.0"
+activity = "1.10.1"
+constraintlayout = "2.1.4"
+composeBom = "2025.04.01"
+navigationCompose = "2.8.9"
+hilt = "2.55"
+hiltNavigationCompose = "1.2.0"
+room = "2.7.1"
+sqlcipher = "4.9.0"
+sqliteKtx = "2.5.0"
+lifecycleViewmodel = "2.8.7"
+coroutines = "1.10.2"
+coil = "3.1.0"
+okhttp = "4.12.0"
+lottie = "6.4.0"
+workRuntime = "2.10.0"
+desugarJdkLibs = "2.1.4"
+composeMultiplatform = "1.7.3"
+media3 = "1.5.1"
+coreSplashscreen = "1.0.1"
+firebaseBom = "33.7.0"
+googleServices = "4.4.2"
+biometric = "1.1.0"
+playIntegrity = "1.4.0"
+tink = "1.15.0"
+compottie = "2.0.0-rc04"
+jna = "5.17.0"
+waffle = "3.5.0"
+jcifsNg = "2.1.10"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
+# JVM-side org.json — needed because Android's bundled org.json is stubs-only for unit tests
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
+androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+androidx-activity = { group = "androidx.activity", name = "activity", version.ref = "activity" }
+androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
+
+# Compose
+compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+compose-ui = { group = "androidx.compose.ui", name = "ui" }
+compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+compose-material-icons = { group = "androidx.compose.material", name = "material-icons-extended" }
+compose-runtime = { group = "androidx.compose.runtime", name = "runtime" }
+compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activity" }
+navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
+
+# Lifecycle
+lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleViewmodel" }
+lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycleViewmodel" }
+lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycleViewmodel" }
+
+# Hilt
+hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
+hilt-android-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
+hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavigationCompose" }
+
+# Room
+room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+
+# SQLCipher 4.9.0 — 16KB page alignment (mandatory since Nov 2025 for Google Play)
+sqlcipher = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipher" }
+sqlite-ktx = { group = "androidx.sqlite", name = "sqlite-ktx", version.ref = "sqliteKtx" }
+
+# Coroutines
+coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutines" }
+
+# Firebase (BoM pins all Firebase library versions together)
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
+firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging-ktx" }
+
+# Coil
+coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
+coil-gif = { group = "io.coil-kt.coil3", name = "coil-gif", version.ref = "coil" }
+
+# Media3 (ExoPlayer) — inline video playback
+media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
+media3-datasource = { group = "androidx.media3", name = "media3-datasource", version.ref = "media3" }
+media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
+media3-database = { group = "androidx.media3", name = "media3-database", version.ref = "media3" }
+
+# OkHttp (+ logging interceptor for debug networking visibility)
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+
+# Other
+lottie = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }
+compottie = { group = "io.github.alexzhirkevich", name = "compottie", version.ref = "compottie" }
+jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
+jna-platform = { group = "net.java.dev.jna", name = "jna-platform", version.ref = "jna" }
+# §TZ-DESKTOP-0.9.1 — WAFFLE-JNA: Windows SSPI bridge для Integrated Windows
+# Authentication через corporate proxy (NTLM/Negotiate с current domain user).
+# Только Windows runtime: на Mac/Linux JAR на classpath, но не вызывается.
+waffle-jna = { group = "com.github.waffle", name = "waffle-jna", version.ref = "waffle" }
+# §TZ-DESKTOP-0.9.3 — jcifs-ng для NTLMv2 Type-1/Type-2/Type-3 с explicit creds
+# (когда SSPI авто-auth не справился). Pure-Java, no native deps.
+jcifs-ng = { group = "eu.agno3.jcifs", name = "jcifs-ng", version.ref = "jcifsNg" }
+
+# Biometric auth (§3.15.a.Д)
+androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
+
+# Play Integrity API — security hardening (attest APK + device)
+play-integrity = { group = "com.google.android.play", name = "integrity", version.ref = "playIntegrity" }
+
+# Google Tink — §TZ-2.3.25 E2E encryption (X25519 ECDH + HKDF-SHA256 + AES-GCM)
+tink-android = { group = "com.google.crypto.tink", name = "tink-android", version.ref = "tink" }
+# §TZ-2.4.0 — pure-JVM Tink для desktop. Тот же crypto subtle API что и Android.
+tink-jvm = { group = "com.google.crypto.tink", name = "tink", version.ref = "tink" }
+work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }

@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Foreground service для надёжной фоновой загрузки справочника МОЛ.
+         Android 14+ требует data-sync type + explicit permission.
+         Обе — normal, автоматически grant'ятся на install. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- DownloadManager с VISIBILITY_HIDDEN (Android 10+): без этой permission
+         DM бросает IllegalArgumentException на enqueue(). Мы скрываем системное
+         уведомление DM потому что показываем собственное foreground-уведомление
+         Worker'а — иначе у юзера два одинаковых в шторке. Permission normal-level,
+         auto-grant на install. -->
+    <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" />
+
+    <!-- §TZ-2.3.6 — звонок из приложения (поиск МОЛ → тап по телефону →
+         конфирм → набор). ACTION_CALL запускает системный dialer
+         (автоматически покажет SIM picker на dual-SIM устройствах); юзер
+         говорит и завершает звонок в системной звонилке, возвращается в нас.
+         In-app панель звонка / громкой связи / endCall из UI не нужны —
+         обработка полностью на системной стороне. CALL_PHONE единственное
+         нужное разрешение. -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+
+    <!-- §TZ-2.3.21 — тактильная обратная связь (haptic) во всём UI:
+         скролл новостей/поиска, tap на номер/email, toggle-ползунки в
+         настройках, переходы по tab'ам, пункты меню, звонок Да/Отмена.
+         Без этой permission `Vibrator.vibrate()` возвращает молча и
+         вибрации физически нет, несмотря на корректный код в
+         FeedbackService и включённый settings.hapticsEnabled. Это
+         normal-level permission, auto-grant на install. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- §TZ-2.5.5 — WAKE_LOCK + WiFi locks для UpdateDownloadService.
+         Чтобы скачка APK обновления продолжалась когда юзер выключил
+         экран (Android Doze иначе паузит CPU + WiFi sleeps). Все три
+         permission — normal level, auto-grant на install. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+
+    <application
+        android:name=".OtlApp"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.OTLHelper"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.App.Starting"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- §TZ-2.5.4 — Кастомная QR-capture activity (portrait locked,
+             без laser line). Используется в PcLoginScannerScreen. -->
+        <activity
+            android:name=".presentation.pc_login.PcQrCaptureActivity"
+            android:screenOrientation="portrait"
+            android:stateNotNeeded="true"
+            android:windowSoftInputMode="stateAlwaysHidden"
+            android:exported="false" />
+
+        <!-- §TZ-2.5.4 — Foreground Service для скачивания APK обновления.
+             Юзер нажимает "Скачать" → запускается этот service →
+             startForeground с notification "Загрузка обновления" → юзер
+             может свернуть/закрыть app, скачка продолжится. -->
+        <service
+            android:name=".core.update.UpdateDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Firebase Cloud Messaging — replaces the AlarmManager-based polling -->
+        <service
+            android:name=".core.push.OtlFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!--
+          WorkManager's SystemForegroundService manifest-merge: Android 14+
+          требует чтобы foregroundServiceType был объявлен в манифесте, а
+          не только в коде через ServiceInfo. WorkManager сам по умолчанию
+          его не прописывает → на Android 14+ при setForeground() падение
+          с IllegalArgumentException. Мы добавляем dataSync тип, с которым
+          BaseSyncWorker стартует как foreground (загрузка справочника МОЛ).
+        -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="otl_unread_v2" />
+
+        <!-- Home-screen widget: brand mark + unread summary -->
+        <receiver
+            android:name=".presentation.widget.OtlHomeWidget"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_home_info" />
+        </receiver>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
+
+    </application>
+
+</manifest>

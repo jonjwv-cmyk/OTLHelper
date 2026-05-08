@@ -1,0 +1,386 @@
+name: Release Desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New version (X.Y.Z)'
+        required: true
+        type: string
+      platform:
+        description: 'Platform'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - mac
+          - win
+      mode:
+        description: 'Update mode'
+        required: true
+        default: 'soft'
+        type: choice
+        options:
+          - soft
+          - hard
+      dev_build:
+        description: 'Dev build (skip D1 update + broadcast — для тестовых билдов команды)'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'no'
+          - 'yes'
+
+env:
+  R2_BUCKET: otl-app-releases
+  D1_NAME: otl-db
+  WORKER_API: https://otl-api.jond-horizon.workers.dev/api
+  PUBLIC_DESKTOP_BASE: https://api.otlhelper.com/desktop
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version format
+        run: |
+          if ! echo "${{ inputs.version }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Version must be X.Y.Z, got '${{ inputs.version }}'"
+            exit 1
+          fi
+
+  build-mac:
+    needs: validate
+    if: ${{ inputs.platform == 'both' || inputs.platform == 'mac' }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bump BuildInfo.VERSION
+        run: |
+          sed -i '' -E 's/const val VERSION = "[^"]*"/const val VERSION = "${{ inputs.version }}"/' \
+            desktop/src/main/kotlin/com/example/otlhelper/desktop/BuildInfo.kt
+      - name: Build release DMG
+        run: ./gradlew :desktop:packageReleaseDmg --no-daemon
+      - name: Locate installer + compute SHAs
+        id: sha
+        run: |
+          # set +o pipefail — `find ... | head -1` под pipefail падает из-за
+          # SIGPIPE (head закрывает pipe раньше чем find заканчивает).
+          set +o pipefail
+          INSTALLER=$(find desktop/build/compose/binaries/main-release/dmg -maxdepth 2 -name "*.dmg" | head -n1)
+          set -o pipefail
+          if [ ! -f "$INSTALLER" ]; then
+            echo "::error::No DMG built"
+            exit 1
+          fi
+          INSTALLER_SHA=$(shasum -a 256 "$INSTALLER" | awk '{print $1}')
+          # §TZ-NEXT TZ#3 — find правильный jar в финальном bundle (не intermediate proguard-output).
+          set +o pipefail
+          JAR=$(find desktop/build/compose/binaries/main-release/app -type f -name "*.jar" 2>/dev/null | head -n1)
+          if [ -z "$JAR" ]; then
+            JAR=$(find desktop/build/compose/binaries/main-release -type f -name "*.jar" 2>/dev/null | head -n1)
+          fi
+          set -o pipefail
+          JAR_SHA=""
+          if [ -f "$JAR" ]; then
+            JAR_SHA=$(shasum -a 256 "$JAR" | awk '{print $1}')
+            echo "Using JAR for binary_sha: $JAR ($JAR_SHA)"
+          else
+            echo "::warning::No bundled JAR found — binary_sha will be empty (enforcement disabled)"
+          fi
+          echo "installer=$INSTALLER" >> "$GITHUB_OUTPUT"
+          echo "installer_sha=$INSTALLER_SHA" >> "$GITHUB_OUTPUT"
+          echo "jar_sha=$JAR_SHA" >> "$GITHUB_OUTPUT"
+      - name: Install wrangler
+        run: npm install -g wrangler
+      - name: Upload DMG to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          KEY="desktop/mac/otl-helper-${{ inputs.version }}.dmg"
+          wrangler r2 object put "$R2_BUCKET/$KEY" --file="${{ steps.sha.outputs.installer }}" --remote
+      - name: Update D1 desktop-mac row
+        if: ${{ inputs.dev_build != 'yes' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          URL="$PUBLIC_DESKTOP_BASE/mac/otl-helper-${{ inputs.version }}.dmg"
+          BIN_SHA="${{ steps.sha.outputs.installer_sha }}"
+          JAR_SHA="${{ steps.sha.outputs.jar_sha }}"
+          SEED="INSERT INTO app_version (app_scope, min_version, current_version, update_url, force_update, notes, apk_sha256, binary_sha, updated_by, updated_at) SELECT 'desktop-mac', '0.0.0', '0.0.0', '', 0, '', '', '', 'gh-actions', datetime('now') WHERE NOT EXISTS (SELECT 1 FROM app_version WHERE app_scope='desktop-mac');"
+          wrangler d1 execute "$D1_NAME" --remote --command="$SEED"
+          if [ "${{ inputs.mode }}" = "hard" ]; then
+            SQL="UPDATE app_version SET min_version='${{ inputs.version }}', current_version='${{ inputs.version }}', update_url='$URL', apk_sha256='$BIN_SHA', binary_sha='$JAR_SHA', force_update=1, notes='Desktop Mac ${{ inputs.version }} mandatory (gh-actions)', updated_by='gh-actions', updated_at=datetime('now') WHERE app_scope='desktop-mac';"
+          else
+            SQL="UPDATE app_version SET current_version='${{ inputs.version }}', update_url='$URL', apk_sha256='$BIN_SHA', binary_sha='$JAR_SHA', force_update=0, notes='Desktop Mac ${{ inputs.version }} soft (gh-actions)', updated_by='gh-actions', updated_at=datetime('now') WHERE app_scope='desktop-mac';"
+          fi
+          wrangler d1 execute "$D1_NAME" --remote --command="$SQL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ inputs.version }}
+          path: ${{ steps.sha.outputs.installer }}
+          retention-days: 30
+
+  build-win:
+    needs: validate
+    if: ${{ inputs.platform == 'both' || inputs.platform == 'win' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            choco install wixtoolset -y --no-progress
+            "$env:WIX\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bump BuildInfo.VERSION
+        shell: bash
+        run: |
+          sed -i -E 's/const val VERSION = "[^"]*"/const val VERSION = "${{ inputs.version }}"/' \
+            desktop/src/main/kotlin/com/example/otlhelper/desktop/BuildInfo.kt
+      - name: Generate Windows icon (.ico from PNG iconset)
+        shell: pwsh
+        run: |
+          # ImageMagick preinstalled on windows-latest runners (magick.exe).
+          # Build multi-resolution .ico from app.iconset PNGs (16,32,48,64,128,256).
+          $iconset = "desktop/icons/app.iconset"
+          $out = "desktop/icons/app.ico"
+          if (-not (Test-Path $iconset)) {
+            Write-Error "iconset not found at $iconset"
+            exit 1
+          }
+          $sources = @(
+            "$iconset/icon_256x256.png",
+            "$iconset/icon_128x128.png",
+            "$iconset/icon_64x64.png",
+            "$iconset/icon_32x32.png",
+            "$iconset/icon_16x16.png"
+          ) | Where-Object { Test-Path $_ }
+          if ($sources.Count -eq 0) {
+            Write-Error "No PNG source icons found in $iconset"
+            exit 1
+          }
+          magick convert $sources $out
+          if (-not (Test-Path $out)) {
+            Write-Error "Failed to generate $out"
+            exit 1
+          }
+          Get-Item $out | Format-List Name, Length
+      - name: Build NativeUtils.dll (WebView2 bridge)
+        shell: pwsh
+        run: |
+          # §TZ-DESKTOP-NATIVE-2026-05 — собираем NativeUtils.dll через
+          # MSBuild + WebView2 NuGet SDK. Output → desktop/src/main/resources/
+          # win32-x86-64/NativeUtils.dll (jpackage вшивает в EXE через
+          # bundled JAR — JNA classpath resource).
+          $nativeDir = "desktop/native/win/NativeUtils"
+          $webview2Version = "1.0.2210.55"
+
+          if (-not (Test-Path "$nativeDir/CMakeLists.txt")) {
+            Write-Error "NativeUtils CMakeLists.txt not found at $nativeDir"
+            exit 1
+          }
+
+          Push-Location $nativeDir
+          try {
+            # NuGet preinstalled on windows-latest runners. Default behavior
+            # (no -ExcludeVersion) кладёт пакет в `Microsoft.Web.WebView2.<version>/`
+            # — именно это ожидает CMake `WEBVIEW2_SDK_DIR`.
+            Write-Host "Installing Microsoft.Web.WebView2 NuGet package..."
+            nuget install Microsoft.Web.WebView2 -Version $webview2Version `
+              -OutputDirectory packages
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "nuget install failed"
+              exit 1
+            }
+
+            Write-Host "Configuring CMake (VS 2022, x64)..."
+            cmake -B build -G "Visual Studio 17 2022" -A x64 `
+              "-DWEBVIEW2_SDK_VERSION=$webview2Version"
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "cmake configure failed"
+              exit 1
+            }
+
+            Write-Host "Building NativeUtils.dll (Release)..."
+            cmake --build build --config Release
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "cmake build failed"
+              exit 1
+            }
+          } finally {
+            Pop-Location
+          }
+
+          $dll = "desktop/src/main/resources/win32-x86-64/NativeUtils.dll"
+          if (-not (Test-Path $dll)) {
+            Write-Error "NativeUtils.dll not produced at expected location: $dll"
+            exit 1
+          }
+          $sizeKB = [math]::Round((Get-Item $dll).Length / 1KB, 1)
+          Write-Host "✓ NativeUtils.dll built — $sizeKB KB"
+      - name: Download VLC portable + extract for bundling
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # §TZ-DESKTOP-DIST 0.8.59 — bundle VLC native libs (libvlc.dll +
+          # libvlccore.dll + plugins/) в installed Win bundle. Юзер: «без
+          # admin прав VLC не установить». Bundling = self-contained EXE,
+          # никаких user actions не нужно.
+          #
+          # 0.8.60 — источник переключен на GitHub Release mirror нашего
+          # repo (тег vlc-mirror-3.0.20). Раньше качали с videolan.org —
+          # риск что сайт упадёт, или Win Defender заблокирует. Mirror в
+          # нашем GitHub: контроль, GitHub CDN, не зависим от внешних.
+          #
+          # 0.9.0 — switched к `gh release download` (auth-aware) вместо
+          # Invoke-WebRequest. Repo PRIVATE → анонимный download ассетов
+          # возвращает 404 даже для не-prerelease. `gh` CLI preinstalled
+          # на windows runners + auto-auth через GH_TOKEN env.
+          #
+          # Чтобы обновить VLC: создать новый GitHub Release с тегом
+          # `vlc-mirror-X.Y.Z` и upload .7z как asset, поменять $vlcVersion
+          # ниже.
+          $vlcVersion = "3.0.20"
+          $vlcArchive = "vlc.7z"
+          $appResources = "desktop/app-resources/windows/vlc"
+
+          Write-Host "Downloading VLC $vlcVersion from GitHub Release mirror via gh CLI..."
+          gh release download "vlc-mirror-$vlcVersion" --repo "$env:GITHUB_REPOSITORY" --pattern "*-win64.7z" --output $vlcArchive
+          if (-not (Test-Path $vlcArchive)) {
+            Write-Error "VLC download failed"
+            exit 1
+          }
+
+          Write-Host "Extracting VLC archive..."
+          # 7z preinstalled на windows-latest runners
+          7z x $vlcArchive -ovlc-extracted -y | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "7z extract failed"
+            exit 1
+          }
+
+          $vlcRoot = Get-ChildItem "vlc-extracted" -Directory | Select-Object -First 1
+          if (-not $vlcRoot) {
+            Write-Error "Extracted VLC root folder not found"
+            exit 1
+          }
+
+          New-Item -Path $appResources -ItemType Directory -Force | Out-Null
+
+          # Copy только critical runtime files: libvlc.dll, libvlccore.dll, plugins/
+          # (полный VLC ~150MB; нам нужно ~50MB)
+          Copy-Item "$($vlcRoot.FullName)/libvlc.dll" -Destination $appResources -Force
+          Copy-Item "$($vlcRoot.FullName)/libvlccore.dll" -Destination $appResources -Force
+          Copy-Item "$($vlcRoot.FullName)/plugins" -Destination $appResources -Recurse -Force
+
+          $bundleSizeMB = [math]::Round((Get-ChildItem $appResources -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
+          Write-Host "✓ VLC bundled — $bundleSizeMB MB → $appResources"
+
+          # Cleanup downloaded archive + extracted (только bundle нужен в EXE)
+          Remove-Item $vlcArchive -Force
+          Remove-Item "vlc-extracted" -Recurse -Force
+      - name: Build release EXE
+        shell: bash
+        run: ./gradlew :desktop:packageReleaseExe --no-daemon
+      - name: Locate installer + compute SHAs
+        id: sha
+        shell: bash
+        run: |
+          # set +o pipefail — `find ... | head -1` под pipefail падает из-за
+          # SIGPIPE (head закрывает pipe раньше чем find заканчивает). На Win
+          # это ловится строже чем на Mac, поэтому 0.5.0 был success а 0.5.1 нет.
+          set +o pipefail
+          INSTALLER=$(find desktop/build/compose/binaries/main-release/exe -maxdepth 2 -name "*.exe" | head -n1)
+          set -o pipefail
+          if [ ! -f "$INSTALLER" ]; then
+            echo "::error::No EXE built"
+            exit 1
+          fi
+          INSTALLER_SHA=$(sha256sum "$INSTALLER" | awk '{print $1}')
+          # §TZ-NEXT TZ#3 — find правильный jar который реально попадает в bundle.
+          # jpackage кладёт финальный obfuscated uber-jar в .../app/ внутри
+          # main-release. Берём оттуда, не из intermediate proguard-output.
+          set +o pipefail
+          JAR=$(find desktop/build/compose/binaries/main-release/app -type f -name "*.jar" 2>/dev/null | head -n1)
+          if [ -z "$JAR" ]; then
+            JAR=$(find desktop/build/compose/binaries/main-release -type f -name "*.jar" 2>/dev/null | head -n1)
+          fi
+          set -o pipefail
+          JAR_SHA=""
+          if [ -f "$JAR" ]; then
+            JAR_SHA=$(sha256sum "$JAR" | awk '{print $1}')
+            echo "Using JAR for binary_sha: $JAR ($JAR_SHA)"
+          else
+            echo "::warning::No bundled JAR found — binary_sha will be empty (enforcement disabled)"
+          fi
+          echo "installer=$INSTALLER" >> "$GITHUB_OUTPUT"
+          echo "installer_sha=$INSTALLER_SHA" >> "$GITHUB_OUTPUT"
+          echo "jar_sha=$JAR_SHA" >> "$GITHUB_OUTPUT"
+      - name: Install wrangler
+        shell: bash
+        run: npm install -g wrangler
+      - name: Upload EXE to R2
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          KEY="desktop/win/otl-helper-${{ inputs.version }}.exe"
+          wrangler r2 object put "$R2_BUCKET/$KEY" --file="${{ steps.sha.outputs.installer }}" --remote
+      - name: Update D1 desktop-win row
+        if: ${{ inputs.dev_build != 'yes' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          URL="$PUBLIC_DESKTOP_BASE/win/otl-helper-${{ inputs.version }}.exe"
+          BIN_SHA="${{ steps.sha.outputs.installer_sha }}"
+          JAR_SHA="${{ steps.sha.outputs.jar_sha }}"
+          SEED="INSERT INTO app_version (app_scope, min_version, current_version, update_url, force_update, notes, apk_sha256, binary_sha, updated_by, updated_at) SELECT 'desktop-win', '0.0.0', '0.0.0', '', 0, '', '', '', 'gh-actions', datetime('now') WHERE NOT EXISTS (SELECT 1 FROM app_version WHERE app_scope='desktop-win');"
+          wrangler d1 execute "$D1_NAME" --remote --command="$SEED"
+          if [ "${{ inputs.mode }}" = "hard" ]; then
+            SQL="UPDATE app_version SET min_version='${{ inputs.version }}', current_version='${{ inputs.version }}', update_url='$URL', apk_sha256='$BIN_SHA', binary_sha='$JAR_SHA', force_update=1, notes='Desktop Win ${{ inputs.version }} mandatory (gh-actions)', updated_by='gh-actions', updated_at=datetime('now') WHERE app_scope='desktop-win';"
+          else
+            SQL="UPDATE app_version SET current_version='${{ inputs.version }}', update_url='$URL', apk_sha256='$BIN_SHA', binary_sha='$JAR_SHA', force_update=0, notes='Desktop Win ${{ inputs.version }} soft (gh-actions)', updated_by='gh-actions', updated_at=datetime('now') WHERE app_scope='desktop-win';"
+          fi
+          wrangler d1 execute "$D1_NAME" --remote --command="$SQL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exe-${{ inputs.version }}
+          path: ${{ steps.sha.outputs.installer }}
+          retention-days: 30
+
+  broadcast:
+    needs: [build-mac, build-win]
+    if: ${{ inputs.dev_build != 'yes' && always() && (needs.build-mac.result == 'success' || needs.build-win.result == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify desktop-mac scope
+        if: needs.build-mac.result == 'success'
+        run: |
+          curl -fsS -X POST "$WORKER_API" \
+            -H "Content-Type: application/json" \
+            -d '{"action":"broadcast_app_version","app_scope":"desktop-mac","release_secret":"${{ secrets.RELEASE_SECRET }}"}'
+      - name: Notify desktop-win scope
+        if: needs.build-win.result == 'success'
+        run: |
+          curl -fsS -X POST "$WORKER_API" \
+            -H "Content-Type: application/json" \
+            -d '{"action":"broadcast_app_version","app_scope":"desktop-win","release_secret":"${{ secrets.RELEASE_SECRET }}"}'

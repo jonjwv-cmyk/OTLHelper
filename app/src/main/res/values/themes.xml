@@ -1,0 +1,40 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Splash theme — applied to the launcher Activity BEFORE Compose inflates.
+      Uses androidx.core:core-splashscreen so behaviour is uniform on
+      Android 12+ (SplashScreen API) and on earlier versions (backport).
+
+      Design choice: system splash is intentionally BLANK (transparent icon
+      over bg_app). Android still requires the Theme.SplashScreen parent
+      (targetSdk 34+), so we just make its icon invisible. Compose starts
+      with a clean black canvas and plays the full BrandSplashMark sequence
+      (halo → pin drop → impact → track → arrow) uninterrupted — no visual
+      handoff, no mismatched "icon → animation" cut. This is the pattern
+      Linear / Arc / Superhuman use: the splash IS the brand moment, not
+      a transition from the launcher icon.
+    -->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/bg_app</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_blank</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/bg_app</item>
+        <item name="postSplashScreenTheme">@style/Theme.OTLHelper</item>
+    </style>
+
+    <!-- Main app theme used after the splash completes. -->
+    <style name="Base.Theme.OTLHelper" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowBackground">@color/bg_app</item>
+        <item name="android:colorBackground">@color/bg_app</item>
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorSurface">@color/surface_card</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOnBackground">@color/text_primary</item>
+        <item name="android:statusBarColor">@color/bg_app</item>
+        <item name="android:navigationBarColor">@color/bg_app</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:popupBackground">@drawable/popup_menu_bg</item>
+    </style>
+
+    <style name="Theme.OTLHelper" parent="Base.Theme.OTLHelper" />
+</resources>
