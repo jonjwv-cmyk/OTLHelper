@@ -308,8 +308,23 @@ fun App() {
     LaunchedEffect(state, login) {
         if (state == AppState.MAIN && login.isNotBlank()) {
             com.example.otlhelper.desktop.sheets.SheetsViewBridge.externalSplashOverlay.value = true
+            // §TZ-DESKTOP-0.10.13 — параллельно с splash грузим SheetsRegistry
+            // с сервера (action `get_client_config`). До этого данные были
+            // hardcoded в SheetsRegistry.kt; после публикации репо как
+            // public — перенесены на server (`sheets-registry.js`).
+            // SheetsWorkspace гейтится на SheetsRegistry.loaded — не mount'ится
+            // пока config не пришёл.
+            val loadJob = scope.launch(Dispatchers.IO) {
+                val ok = com.example.otlhelper.desktop.sheets.SheetsRegistry.loadFromServer()
+                if (!ok) {
+                    System.err.println("[OTLD][config] get_client_config failed — Sheets workspace останется пустым")
+                }
+            }
             // 2.5с splash: SheetsWorkspace mount + первый load + CSS-маска.
             kotlinx.coroutines.delay(2_500)
+            // Если config ещё не пришёл — ждём чуть дольше (до 5с total).
+            // Иначе SheetsWorkspace покажет пустоту/loader.
+            kotlinx.coroutines.withTimeoutOrNull(2_500) { loadJob.join() }
             com.example.otlhelper.desktop.sheets.SheetsViewBridge.externalSplashOverlay.value = false
         }
     }
@@ -332,6 +347,9 @@ fun App() {
             runCatching { ApiClient.logout() }
             ApiClient.clearToken()
             SessionStore.clear()
+            // §TZ-DESKTOP-0.10.13 — на logout сбрасываем server-loaded sheets
+            // config; на re-login заново подтянется через get_client_config.
+            com.example.otlhelper.desktop.sheets.SheetsRegistry.reset()
             sessionLifecycle.stop()
             login = ""
             fullName = ""
@@ -373,6 +391,7 @@ fun App() {
                     }
                     ApiClient.clearToken()
                     SessionStore.clear()
+                    com.example.otlhelper.desktop.sheets.SheetsRegistry.reset()
                     login = ""
                     fullName = ""
                     avatarUrl = ""
@@ -424,6 +443,7 @@ fun App() {
             runCatching { ApiClient.logout() }
             ApiClient.clearToken()
             SessionStore.clear()
+            com.example.otlhelper.desktop.sheets.SheetsRegistry.reset()
             login = ""
             fullName = ""
             avatarUrl = ""
@@ -463,6 +483,16 @@ fun App() {
                 // §TZ-DESKTOP-0.1.0 этап 5 — репозитории создаются один раз per-login
                 // и живут пока сессия активна. Сворачивание/разворачивание правой
                 // панели НЕ приводит к пересозданию и повторной загрузке данных.
+                //
+                // §TZ-DESKTOP-0.10.13 — гейтим рендер MainScreen на загрузку
+                // SheetsRegistry с сервера. SheetsWorkspace требует non-null
+                // SheetsRegistry.WORKFLOW; до server-load этот доступ был бы
+                // null → крэш. Пока loaded=false показываем пустоту: cat splash
+                // из LaunchedEffect выше визуально это перекрывает.
+                val sheetsLoaded by com.example.otlhelper.desktop.sheets.SheetsRegistry.loaded.collectAsState()
+                if (!sheetsLoaded) {
+                    return@when
+                }
                 val repos = remember(login) {
                     if (login.isBlank()) null
                     else SessionRepos(

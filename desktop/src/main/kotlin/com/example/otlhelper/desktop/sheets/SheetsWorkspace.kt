@@ -54,11 +54,18 @@ fun SheetsWorkspace(
 ) {
     val runtimeState by SheetsRuntime.state.collectAsState()
 
-    var activeFile by remember { mutableStateOf<SheetsFile>(SheetsRegistry.WORKFLOW) }
+    // §TZ-DESKTOP-0.10.13 — SheetsRegistry загружается с сервера. App.kt гарантирует
+    // что SheetsWorkspace не mount'ится пока loaded=false (см. App.kt MAIN branch),
+    // поэтому здесь .WORKFLOW не может быть null. Если null — это баг
+    // в гейтинге, явно падаем с осмысленным сообщением.
+    val workflowFile = SheetsRegistry.WORKFLOW
+        ?: error("SheetsWorkspace mounted before SheetsRegistry was loaded — это баг гейтинга в App.kt")
+
+    var activeFile by remember { mutableStateOf<SheetsFile>(workflowFile) }
     val lastTabByFile = remember { mutableStateMapOf<String, String>() }
     val visibleTabs = remember(activeFile) { activeFile.visibleTabs() }
     var activeTabName by remember {
-        mutableStateOf(SheetsRegistry.WORKFLOW.visibleTabs().firstOrNull()?.originalName)
+        mutableStateOf(workflowFile.visibleTabs().firstOrNull()?.originalName)
     }
 
     var browser: SheetsBrowserController? by remember { mutableStateOf(null) }
@@ -121,7 +128,12 @@ fun SheetsWorkspace(
         onDispose {}
     }
 
-    fun executeAction(action: SheetAction) {
+    /**
+     * §TZ-DESKTOP-0.10.13 — Execute action. Если action.requiresPassword,
+     * password передаётся параметром (после успешного prompt в UI). Если
+     * нет — null. Сервер сам валидирует password при run_script.
+     */
+    fun executeAction(action: SheetAction, password: String? = null) {
         System.err.println("[OTLD][action] start: ${action.id}")
         val lockedTabs = action.locksTabs.ifEmpty {
             listOfNotNull(activeTabName)
@@ -143,6 +155,7 @@ fun SheetsWorkspace(
                 userName = currentUserName,
                 tabName = activeTabName ?: activeFile.title,
                 lockedTabs = lockedTabs,
+                password = password,
             )
             System.err.println("[OTLD][action] done: ${action.id} ok=$ran")
             // Reload + re-inject CSS-маска (после reload URL не меняется,
@@ -206,7 +219,8 @@ fun SheetsWorkspace(
     //    того куда Chromium перешёл по `currentUrl`.
     //  • Anonymous → сразу на sheet URL без login (read-only public mode).
     val initialUrl = remember(loginChoice) {
-        val firstUrl = SheetsRegistry.WORKFLOW.firstTabUrl()
+        // workflowFile уже non-null из guard вверху
+        val firstUrl = workflowFile.firstTabUrl()
         when (loginChoice) {
             GoogleLoginChoice.Anonymous -> firstUrl
             else -> {
@@ -341,7 +355,7 @@ fun SheetsWorkspace(
         when (val s = runtimeState) {
             is SheetsRuntime.State.Ready -> Column(modifier = Modifier.fillMaxSize()) {
                 SheetsTopBar(
-                    files = SheetsRegistry.files,
+                    files = SheetsRegistry.filesList,
                     activeFile = activeFile,
                     onFileChange = { newFile ->
                         // §TZ-DESKTOP-UX-2026-05 0.8.59 — block click если
@@ -374,7 +388,7 @@ fun SheetsWorkspace(
                     actionsEnabled = !currentTabLocked && loginChoice == GoogleLoginChoice.SignedIn,
                     reloading = isReloading,
                     onAction = { action ->
-                        if (action.requiresPassword != null) {
+                        if (action.requiresPassword) {
                             pendingPasswordAction = action
                         } else {
                             executeAction(action)
@@ -552,7 +566,7 @@ fun SheetsWorkspace(
                                 if (!isReloading) {
                                     isReloading = true
                                     workspaceScope.launch {
-                                        val firstUrl = SheetsRegistry.WORKFLOW.firstTabUrl()
+                                        val firstUrl = workflowFile.firstTabUrl()
                                         val continueUrl = java.net.URLEncoder.encode(firstUrl, "UTF-8")
                                         runCatching {
                                             browser?.loadUrl("https://accounts.google.com/Logout?continue=$continueUrl")
@@ -579,15 +593,17 @@ fun SheetsWorkspace(
     }
 
     // Password prompt overlay для actions с requiresPassword (например TECH NAME).
+    // §TZ-DESKTOP-0.10.13 — валидация серверная: prompt просто собирает
+    // password и передаёт в executeAction(action, password). Сервер ответит
+    // wrong_password если не совпало (см. handleRunScript на сервере).
     val pwAction = pendingPasswordAction
-    if (pwAction != null && pwAction.requiresPassword != null) {
+    if (pwAction != null && pwAction.requiresPassword) {
         SheetsPasswordPrompt(
             actionLabel = pwAction.label,
-            expectedPassword = pwAction.requiresPassword,
             rightInset = modalRightInset,
-            onSubmit = {
+            onSubmit = { password ->
                 pendingPasswordAction = null
-                executeAction(pwAction)
+                executeAction(pwAction, password)
             },
             onDismiss = { pendingPasswordAction = null },
         )

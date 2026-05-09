@@ -69,31 +69,38 @@ import com.example.otlhelper.desktop.ui.AppOverlay
  * **внутри** main window — двигается с приложением, не отдельный OS
  * window.
  *
- * Validation локальная — match input vs `expectedPassword`. Если match
- * → onSubmit; mismatch → показываем error label, не закрываем.
+ * §TZ-DESKTOP-0.10.13 — Validation **серверная**. Раньше клиент сравнивал
+ * input vs hardcoded expectedPassword. Теперь password введённый юзером
+ * передаётся в onSubmit(password) callback → run_script action отправляет
+ * на сервер → сервер сравнивает с stored requiresPassword из registry.
+ * Сервер вернёт `wrong_password` если не совпало; родитель показывает
+ * showError=true через `errorMessage` параметр и переоткрывает prompt.
  */
 @Composable
 fun SheetsPasswordPrompt(
     actionLabel: String,
-    expectedPassword: String,
     rightInset: Dp = 0.dp,
-    onSubmit: () -> Unit,
+    errorMessage: String? = null,
+    onSubmit: (password: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     AppOverlay {
         var input by remember { mutableStateOf("") }
-        var showError by remember { mutableStateOf(false) }
+        var showError by remember { mutableStateOf(errorMessage != null) }
         val focusRequester = remember { FocusRequester() }
         LaunchedEffect(Unit) {
             runCatching { focusRequester.requestFocus() }
         }
 
         fun trySubmit() {
-            if (input == expectedPassword) {
-                onSubmit()
-            } else {
+            if (input.isEmpty()) {
                 showError = true
+                return
             }
+            // Серверная валидация — отправляем введённое значение наверх,
+            // там вызывается run_script с password в body. Если сервер
+            // вернёт wrong_password — родитель сделает showError=true.
+            onSubmit(input)
         }
 
         DisposableEffect(Unit) {

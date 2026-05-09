@@ -7,68 +7,63 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.example.otlhelper.desktop.data.network.ApiClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
- * §TZ-DESKTOP 0.4.x — реестр Google-таблиц со **статическими gid'ами**.
+ * §TZ-DESKTOP-0.10.13 — Sheets registry, **загружается с сервера**.
  *
- * **Source of truth.** Юзер в 2026-04-26 предоставил полный список листов
- * с реальными gid'ами. Захардкодены сюда. Это даёт:
- *   • Мгновенную навигацию hash-nav без зависимости от live-resolve DOM
- *     (раньше был JS poller — глючил, требовал bootstrap, гонки с CSS).
- *   • Предсказуемое поведение (что в Registry — то в UI).
- *   • Robust к изменениям Google: если переименуют классы DOM, наша
- *     навигация продолжит работать (gids не меняются у листов).
- *   • Hidden листы прячутся через flag, не через CSS-фильтр в DOM.
+ * До 0.10.12 здесь были hardcoded:
+ *   • Spreadsheet IDs и tab gids
+ *   • Apps Script URLs (script.google.com/macros/s/AKfycb...)
+ *   • Hardcoded passwords (action.requiresPassword)
+ * После публикации репо как public — всё чувствительное вынесено на сервер
+ * (`server-modular/sheets-registry.js`). Клиент дёргает action
+ * `get_client_config` после login и получает sanitized JSON: ids/gids/labels
+ * без URL'ов и без plaintext паролей (только bool флаг `requiresPassword`).
  *
- * **Когда добавлять новый лист:** юзер шлёт URL с gid → добавляешь
- * `StaticTab(gid, rawName, displayName?, hidden?)` в нужный файл.
- * Никакого AUTO-discovery — оно неустойчиво. Только manual control.
+ * Lifecycle:
+ *   1. App start → SheetsRegistry.state = Loading
+ *   2. После login → App.kt вызывает loadFromServer() → state = Loaded
+ *   3. UI наблюдает state, рендерит TabStrip когда Loaded
+ *   4. На logout → reset() → state снова Loading
+ *   5. На re-login → loadFromServer() заново
  */
 
 /** Один Apps Script триггер (UI-кнопка в TopBar). */
 data class SheetAction(
-    /** Стабильный ID для WS lock-broadcast (`sheet_action_lock` payload). */
+    /** Стабильный ID для server-side dispatch (`run_script` шлёт сюда action_id). */
     val id: String,
     val label: String,
     val icon: ImageVector,
-    /** Apps Script web-app URL: `https://script.google.com/macros/s/.../exec?fn=...`. */
-    val scriptUrl: String,
     /** Если non-null — показать confirm-dialog с этим заголовком перед запуском. */
     val confirmTitle: String? = null,
     /**
-     * Apps Script alive-endpoint (обычно `?action=alive`) — periodic poll для
-     * проверки что macro ещё работает. Phase 2 server side: после run,
-     * клиент периодически дёргает statusUrl; если status==alive=false →
-     * считаем скрипт завершённым → broadcast unlock. Без statusUrl
-     * полагаемся на fixed timeout.
+     * §TZ-DESKTOP-0.10.13 — Boolean (раньше String? с plaintext password).
+     * Сервер хранит реальный пароль в sheets-registry.js, валидирует при
+     * `run_script`. Клиент только знает что нужен password input, не сам
+     * пароль.
      */
-    val statusUrl: String? = null,
+    val requiresPassword: Boolean = false,
     /**
-     * Если non-null — перед run требуем password input. Юзер вводит,
-     * клиент локально сравнивает с этой строкой; match → run, else отказ.
-     * **Не secure против reverse-engineering** (пароль вшит в клиент),
-     * но матчит существующий UX Google Sheets sidebar где пароль также
-     * вшит в Apps Script.
+     * §TZ-DESKTOP-0.10.13 — Boolean (раньше String? с statusUrl). Polling
+     * статуса делается через server endpoint `check_sheet_action_status`.
      */
-    val requiresPassword: String? = null,
+    val hasStatusUrl: Boolean = false,
     /**
      * Список rawName'ов листов которые блокируются пока action работает.
-     * Apps Script может писать в несколько листов — например MOL/VGH
-     * sync обновляет одновременно `workflow` и `wf_import`. Если empty
-     * → блокируется только тот лист на котором запущена кнопка.
-     *
-     * UI behaviour: на listed tabs показывается overlay + actions
-     * disabled; на остальных tabs всё работает нормально.
+     * UI behaviour: на listed tabs показывается overlay + actions disabled.
      */
     val locksTabs: List<String> = emptyList(),
 )
 
-/**
- * Статически зарегистрированный лист. Захардкоженный gid.
- *
- * @param hidden — лист есть в файле и через прямой URL переход возможен,
- * но в нашей tab-strip не показываем (служебные листы: header, log, эмодзи).
- */
+/** Статически зарегистрированный лист с захардкоженным gid. */
 data class StaticTab(
     val gid: Long,
     val rawName: String,
@@ -78,12 +73,10 @@ data class StaticTab(
     val actions: List<SheetAction> = emptyList(),
 )
 
-/** Готовая к показу в UI вкладка (derived из [StaticTab.visibleTabs]). */
+/** Готовая к показу в UI вкладка. */
 data class SheetTab(
     val gid: Long,
-    /** Что видит юзер на пилюле. */
     val label: String,
-    /** Имя в Google (для отладки и matching). */
     val originalName: String,
     val actions: List<SheetAction> = emptyList(),
 )
@@ -91,14 +84,14 @@ data class SheetTab(
 data class SheetsFile(
     /** Google Drive document ID. */
     val id: String,
-    /** Human-readable заголовок (для file-switcher pill). */
+    /** Human-readable заголовок. */
     val title: String,
-    /** Короткая иконка (legacy, теперь не используется в TopBar). */
+    /** Короткая иконка (legacy). */
     val emoji: String,
     /** Все листы файла (включая hidden). */
     val staticTabs: List<StaticTab>,
 ) {
-    /** Видимые листы (hidden=false), готовые для UI. Order = как в Registry. */
+    /** Видимые листы (hidden=false), готовые для UI. */
     fun visibleTabs(): List<SheetTab> = staticTabs
         .filter { !it.hidden }
         .map { st ->
@@ -110,174 +103,136 @@ data class SheetsFile(
             )
         }
 
-    /** gid первого видимого листа (для file switch). */
     fun firstVisibleGid(): Long = staticTabs.firstOrNull { !it.hidden }?.gid ?: 0L
 
-    /** URL с gid первого видимого листа (для loadURL при file switch). */
     fun firstTabUrl(): String =
         "https://docs.google.com/spreadsheets/d/$id/edit#gid=${firstVisibleGid()}"
 
-    /** Дефолтный URL без gid. */
     fun defaultUrl(): String = "https://docs.google.com/spreadsheets/d/$id/edit"
 }
 
+/**
+ * §TZ-DESKTOP-0.10.13 — Stateful registry, populated from server after login.
+ *
+ * До этого был `object SheetsRegistry { val WORKFLOW = SheetsFile(...) }` —
+ * compile-time singleton. Теперь данные приходят с сервера, поэтому
+ * registry — stateful holder с `StateFlow<List<SheetsFile>>`.
+ *
+ * Существующие consumers вызывают `SheetsRegistry.WORKFLOW`, `OTIF5`, `files`.
+ * Эти accessor'ы теперь читают current state. Если state ещё пустой
+ * (config не загружен) — возвращают `null` или пустой список соответственно.
+ *
+ * `EMPTY_FALLBACK` — заглушка с теми же IDs что были в старом hardcode.
+ * Не используется в production (сервер всегда отвечает) — нужен только
+ * для legacy-кода который не выдержит null. Будет удалён после полного
+ * перехода consumers на nullable API.
+ */
 object SheetsRegistry {
 
-    /**
-     * §TZ-DESKTOP 0.4.x — WORKFLOW: основная рабочая таблица.
-     *
-     * gid'ы захардкожены 2026-04-26 на основе данных юзера. Если Google
-     * переименует листы — gid'ы не изменятся, навигация продолжит работать.
-     *
-     * Hidden листы (🚚, workflow, 💩, LOG) — служебные/header'ы. Не
-     * показываем в tab-strip; для прямого перехода доступны через URL.
-     *
-     * tabActions сейчас пустые — заполнятся в commit 6 (Apps Script
-     * интеграция + WS lock-broadcast).
-     */
-    val WORKFLOW = SheetsFile(
-        id = "1UzeJcle23W053hAZgo_wV0jy4xxzKld7yCIDRT9w4aA",
-        title = "WORKFLOW",
-        emoji = "🚚",
-        staticTabs = listOf(
-            // Лист 🚚 теперь visible — юзер дал action для него (Сортировка
-            // отдельный URL от workflow листа). hidden=false чтобы юзер
-            // мог переключиться и запустить.
-            StaticTab(
-                gid = 1982235754L,
-                rawName = "🚚",
-                // Юзер: «вместо имени смайлик 🚚». Только emoji, без текста.
-                displayName = "🚚",
-                actions = listOf(
-                    SheetAction(
-                        id = "truck_sort",
-                        label = "Сортировка",
-                        icon = Icons.Outlined.SwapVert,
-                        scriptUrl = "https://script.google.com/macros/s/AKfycbyA3rmqMju_4DyKUyhQRW8VXi7Isbu7P-U_v4Iq6gx7SRn6sL7Iti63MnSZcS3MtRly/exec?action=run",
-                    ),
-                ),
-            ),
-            StaticTab(
-                gid = 0L,
-                rawName = "workflow",
-                displayName = "WORKFLOW",
-                actions = listOf(
-                    SheetAction(
-                        id = "workflow_sort",
-                        label = "Сортировка",
-                        icon = Icons.Outlined.SwapVert,
-                        scriptUrl = "https://script.google.com/macros/s/AKfycbw6zNvGlT8fP_Wd-QavmhwaeAjoqL2yiPqGvJgyF8JEbUxjzX4Pp_if3IDBmo6dR69e/exec?action=run",
-                    ),
-                    SheetAction(
-                        id = "workflow_mol_vgh",
-                        label = "МОЛы/ВГХ",
-                        icon = Icons.Outlined.Sync,
-                        scriptUrl = "https://script.google.com/macros/s/AKfycbw5lfiinKJo_nTqtin3cvH0hGlJggPqgb84AVpA9oQm8YmDeQrIlvn_bB6uvUe4Ptnupg/exec?action=run",
-                        statusUrl = "https://script.google.com/macros/s/AKfycbw5lfiinKJo_nTqtin3cvH0hGlJggPqgb84AVpA9oQm8YmDeQrIlvn_bB6uvUe4Ptnupg/exec?action=alive",
-                        locksTabs = listOf("workflow", "wf_import"),
-                    ),
-                    SheetAction(
-                        id = "workflow_tech_name",
-                        label = "TECH NAME",
-                        icon = Icons.Outlined.PlayArrow,
-                        scriptUrl = "https://script.google.com/macros/s/AKfycbxFgdMUrrTF_I78YwxusdYvew38RU2BsEdIxAS8nlzhzeE0LsrRrrbuSGkxFslacdqI/exec?action=run",
-                        requiresPassword = "филактерия",
-                        locksTabs = listOf("workflow", "wf_import"),
-                    ),
-                ),
-            ),
-            // §TZ-DESKTOP-UX-2026-05 0.8.56 — юзер: «добавить лист 💩 как
-            // машинку для Mac и Win после workflow». hidden=false; emoji-only
-            // displayName (как у 🚚).
-            StaticTab(
-                gid = 1549314588L,
-                rawName = "💩",
-                displayName = "💩",
-            ),
-            StaticTab(gid = 129894376L, rawName = "wf_custodians", displayName = "МОЛы"),
-            StaticTab(
-                gid = 1421604338L,
-                rawName = "wf_plan",
-                displayName = "План",
-                actions = listOf(
-                    SheetAction(
-                        id = "plan_mol_vgh",
-                        label = "МОЛы/ВГХ",
-                        icon = Icons.Outlined.Sync,
-                        scriptUrl = "https://script.google.com/macros/s/AKfycbw5lfiinKJo_nTqtin3cvH0hGlJggPqgb84AVpA9oQm8YmDeQrIlvn_bB6uvUe4Ptnupg/exec?action=run",
-                        statusUrl = "https://script.google.com/macros/s/AKfycbw5lfiinKJo_nTqtin3cvH0hGlJggPqgb84AVpA9oQm8YmDeQrIlvn_bB6uvUe4Ptnupg/exec?action=alive",
-                        locksTabs = listOf("workflow", "wf_import"),
-                    ),
-                ),
-            ),
-            StaticTab(
-                gid = 1865519811L,
-                rawName = "recipients",
-                displayName = "Рассылка",
-                actions = listOf(
-                    SheetAction(
-                        id = "recipients_pull",
-                        label = "Подтянуть",
-                        icon = Icons.Outlined.CloudDownload,
-                        scriptUrl = "https://script.google.com/macros/s/AKfycbxrmLVtKj9cjGhu6BcNujcF-LJCI-dvC3ENrZwSP4dUUCaw3bUzDpz86vT3fBK6gSWNfA/exec?action=run",
-                    ),
-                ),
-            ),
-            StaticTab(gid = 1772902932L, rawName = "wf_warehouses", displayName = "Склады"),
-            StaticTab(
-                gid = 911759389L,
-                rawName = "wf_import",
-                displayName = "Импорт",
-                actions = listOf(
-                    SheetAction(
-                        id = "import_workflow_refresh",
-                        label = "workflow",
-                        icon = Icons.Outlined.Sync,
-                        scriptUrl = "https://script.google.com/macros/s/AKfycbz4ez4Mu8GhMSlNfwqY04ivVf6NXT57A8uf-7Mi4LPZfKTIzJs9hoOaLiuwKbDX9pJa0w/exec?action=run",
-                        statusUrl = "https://script.google.com/macros/s/AKfycbz4ez4Mu8GhMSlNfwqY04ivVf6NXT57A8uf-7Mi4LPZfKTIzJs9hoOaLiuwKbDX9pJa0w/exec?action=alive",
-                        locksTabs = listOf("workflow", "wf_import"),
-                    ),
-                    SheetAction(
-                        id = "import_mol_db",
-                        label = "БД МОЛов",
-                        icon = Icons.Outlined.Sync,
-                        scriptUrl = "https://script.google.com/macros/s/AKfycbzTFFOoXkILW87YeVKyseGBJjUewE82NmcXtAuS4xEUhB2k2jOZAsrvKEvfv5SKuSHrIA/exec?action=run",
-                    ),
-                ),
-            ),
-            StaticTab(gid = 1702904663L, rawName = "📊schedule", displayName = "График ТМЦ"),
-            // §TZ-DESKTOP-UX-2026-04 — LOG в самом конце TabStrip workflow,
-            // только просмотр, без actions. Раньше был hidden — юзер попросил показать.
-            StaticTab(gid = 822800394L, rawName = "LOG", displayName = "LOG"),
-        ),
-    )
+    private val _files = MutableStateFlow<List<SheetsFile>>(emptyList())
+    val files: StateFlow<List<SheetsFile>> = _files.asStateFlow()
+
+    /** True если хотя бы один раз успешно загрузили с сервера. */
+    private val _loaded = MutableStateFlow(false)
+    val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
+
+    /** Lookup по title (`"WORKFLOW"`, `"OTIF5"`). Null если нет/не загружено. */
+    fun byTitle(title: String): SheetsFile? = _files.value.firstOrNull { it.title == title }
+
+    /** Lookup по spreadsheet ID. */
+    fun byId(id: String): SheetsFile? = _files.value.firstOrNull { it.id == id }
 
     /**
-     * §TZ-DESKTOP 0.4.x — OTIF5: показываем все листы оригинальными именами.
+     * Backward-compat accessors для legacy-кода. После загрузки с сервера
+     * возвращают актуальный SheetsFile; до загрузки — null.
      *
-     * Юзер: «для файла OTIF5 все вкладки также перенести как есть с
-     * названиями вверх» — никаких rename, никаких hidden.
+     * NB: всё больше consumer'ов должны переехать на `byTitle()` чтобы
+     * корректно обрабатывать loading-state. Эти shortcut'ы — на переходный
+     * период.
      */
-    val OTIF5 = SheetsFile(
-        id = "1RK8W5tpRwkeh2OLopo21FFvrFVcTfIH6lSMkpVnAStY",
-        title = "OTIF5",
-        emoji = "📊",
-        staticTabs = listOf(
-            StaticTab(gid = 1737863350L, rawName = "OTIF5"),
-            StaticTab(gid = 135499303L, rawName = "ZM_VL"),
-            StaticTab(gid = 422242815L, rawName = "СЭД"),
-            StaticTab(gid = 34499025L, rawName = "ОТЧЕТ"),
-            StaticTab(gid = 1363034598L, rawName = "DELETED"),
-        ),
-    )
+    val WORKFLOW: SheetsFile? get() = byTitle("WORKFLOW")
+    val OTIF5: SheetsFile? get() = byTitle("OTIF5")
 
-    val files: List<SheetsFile> = listOf(WORKFLOW, OTIF5)
+    /** Все файлы (тот же что `files.value`). Для legacy-кода. */
+    val filesList: List<SheetsFile> get() = _files.value
 
-    /** Иконка-намекалка для будущих авторов скриптов: PlayArrow для запуска,
-     *  Functions для свод-операций. */
-    @Suppress("unused")
-    val DEFAULT_ACTION_ICONS: Map<String, ImageVector> = mapOf(
-        "run" to Icons.Outlined.PlayArrow,
-        "summary" to Icons.Outlined.Functions,
-    )
+    /**
+     * §TZ-DESKTOP-0.10.13 — Загрузить config с сервера. Вызывается из App.kt
+     * после успешного login. На logout call `reset()`, на re-login снова
+     * loadFromServer().
+     *
+     * Returns true если config успешно получен и распарсен.
+     */
+    suspend fun loadFromServer(): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val resp = ApiClient.request("get_client_config") { /* empty body */ }
+            if (!resp.optBoolean("ok", false)) return@withContext false
+            val config = resp.optJSONObject("config") ?: return@withContext false
+            val parsed = parseConfig(config)
+            _files.value = parsed
+            _loaded.value = true
+            true
+        }.getOrElse { e ->
+            System.err.println("[OTLD][registry] loadFromServer failed: ${e.message}")
+            false
+        }
+    }
+
+    /** Сбросить state (на logout). Следующий loadFromServer заполнит заново. */
+    fun reset() {
+        _files.value = emptyList()
+        _loaded.value = false
+    }
+
+    /** Парсит JSON ответа сервера в список SheetsFile. */
+    private fun parseConfig(config: JSONObject): List<SheetsFile> {
+        val filesArr = config.optJSONArray("files") ?: return emptyList()
+        val out = mutableListOf<SheetsFile>()
+        for (i in 0 until filesArr.length()) {
+            val fileObj = filesArr.optJSONObject(i) ?: continue
+            val tabsArr = fileObj.optJSONArray("tabs") ?: JSONArray()
+            val tabs = (0 until tabsArr.length()).mapNotNull { j ->
+                val tabObj = tabsArr.optJSONObject(j) ?: return@mapNotNull null
+                val actsArr = tabObj.optJSONArray("actions") ?: JSONArray()
+                val actions = (0 until actsArr.length()).mapNotNull { k ->
+                    val a = actsArr.optJSONObject(k) ?: return@mapNotNull null
+                    SheetAction(
+                        id = a.optString("id"),
+                        label = a.optString("label"),
+                        icon = iconFromString(a.optString("icon")),
+                        confirmTitle = a.optString("confirmTitle").takeIf { it.isNotEmpty() },
+                        requiresPassword = a.optBoolean("requiresPassword", false),
+                        hasStatusUrl = a.optBoolean("hasStatusUrl", false),
+                        locksTabs = a.optJSONArray("locksTabs")?.let { arr ->
+                            (0 until arr.length()).map { arr.optString(it) }
+                        } ?: emptyList(),
+                    )
+                }
+                StaticTab(
+                    gid = tabObj.optLong("gid"),
+                    rawName = tabObj.optString("rawName"),
+                    displayName = tabObj.optString("displayName").takeIf { it.isNotEmpty() },
+                    hidden = tabObj.optBoolean("hidden", false),
+                    actions = actions,
+                )
+            }
+            out.add(SheetsFile(
+                id = fileObj.optString("id"),
+                title = fileObj.optString("title"),
+                emoji = fileObj.optString("emoji"),
+                staticTabs = tabs,
+            ))
+        }
+        return out
+    }
+
+    /** Maps server-side icon string id → Material ImageVector. */
+    private fun iconFromString(name: String): ImageVector = when (name) {
+        "swap_vert" -> Icons.Outlined.SwapVert
+        "sync" -> Icons.Outlined.Sync
+        "play_arrow" -> Icons.Outlined.PlayArrow
+        "cloud_download" -> Icons.Outlined.CloudDownload
+        "functions" -> Icons.Outlined.Functions
+        else -> Icons.Outlined.PlayArrow  // default fallback
+    }
 }

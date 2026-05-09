@@ -460,7 +460,8 @@ internal fun MacSheetsWebView(
                 if (isSpreadsheet) {
                     val window = composeWindow
                     if (window != null) {
-                        SheetsRegistry.files.forEach { file ->
+                        // §TZ-DESKTOP-0.10.13 — filesList (List), а не files (StateFlow).
+                        SheetsRegistry.filesList.forEach { file ->
                             if (slots.containsKey(file.id)) return@forEach
                             val preload = MacSheetsSlot(file.id, MacSheetsWebViewState())
                             if (preload.state.create() && preload.state.attachToWindow(window)) {
