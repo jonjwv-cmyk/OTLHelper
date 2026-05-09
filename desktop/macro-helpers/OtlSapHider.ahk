@@ -31,21 +31,52 @@ targetsFile := A_Args.Length >= 1 ? A_Args[1] : ""
 if (targetsFile = "")
     ExitApp
 
+debugLog := "C:\Users\Public\otl-sap-hider-debug.log"
+
+LogDbg(msg) {
+    global debugLog
+    try FileAppend "[" FormatTime(, "yyyy-MM-dd HH:mm:ss.fff") "] " msg "`n", debugLog
+}
+
+LogDbg("hider start, targetsFile=" targetsFile)
+
 deadline := A_TickCount + 15 * 60 * 1000  ; 15 минут fail-safe
+tickCounter := 0
+lastHandlesCount := -1
 
 Loop {
-    if (A_TickCount > deadline)
+    if (A_TickCount > deadline) {
+        LogDbg("deadline reached, exit")
         ExitApp
-    if (!FileExist(targetsFile))
+    }
+    if (!FileExist(targetsFile)) {
+        LogDbg("targets file gone, exit")
         ExitApp
+    }
 
     try {
         text := FileRead(targetsFile)
-        for line in StrSplit(text, "`n", "`r") {
-            line := Trim(line)
-            if (line != "")
-                try WinHide("ahk_id " . line)
+        ; §0.10.23 BUG FIX — Loop Parse вместо `for line in StrSplit()`.
+        ; В AHK v2 `for v in array` даёт INDEX в v, не value → WinHide
+        ; вызывался с ahk_id 1, 2, 3... (несуществующие HWND).
+        ; Loop Parse корректно итерирует строки в A_LoopField.
+        handlesProcessed := 0
+        Loop Parse text, "`n", "`r" {
+            line := Trim(A_LoopField)
+            if (line != "") {
+                try {
+                    WinHide("ahk_id " . line)
+                    handlesProcessed += 1
+                }
+            }
         }
+        ; Лог только при изменении count чтобы не спамить
+        if (handlesProcessed != lastHandlesCount) {
+            LogDbg("targets=" handlesProcessed)
+            lastHandlesCount := handlesProcessed
+        }
+    } catch as err {
+        LogDbg("loop error: " err.Message)
     }
     Sleep(200)
 }
