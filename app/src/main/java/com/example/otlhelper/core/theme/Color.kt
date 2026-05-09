@@ -71,10 +71,12 @@ internal fun standardColors() = OtlColors(
     statusError       = Color(0xFF7F1D1D),
     statusOkBorder    = Color(0xFF22C55E),
     statusErrorBorder = Color(0xFFEF4444),
-    // §0.10.13 — лёгкий зелёно-/красноватый оттенок BgCard для карточек.
-    // Standard dark: BgCard #1A1A1C → +5% green/red.
-    cardStatusOkBg    = Color(0xFF1A2620),
-    cardStatusErrorBg = Color(0xFF26191B),
+    // §0.10.13 — В dark-темах карточка остаётся нейтральной (= bgCard) —
+    // border достаточно. Заливка только для light theme где на белом фоне
+    // border читается слабее. Юзер: «и заливка карточки только для дневной
+    // светлой темы нужно и не более того».
+    cardStatusOkBg    = Color(0xFF1A1A1C),
+    cardStatusErrorBg = Color(0xFF1A1A1C),
     unreadGreen    = Color(0xFF22C55E),
     presencePaused = Color(0xFFE5A83B),
     borderDivider = Color(0xFF363640),
@@ -108,9 +110,10 @@ internal fun darkColors() = OtlColors(
     statusError       = Color(0xFF450A0A),
     statusOkBorder    = Color(0xFF22C55E),
     statusErrorBorder = Color(0xFFEF4444),
-    // §0.10.13 — AMOLED dark: BgCard #141414 → очень субтильный зелёный/красный.
-    cardStatusOkBg    = Color(0xFF112019),
-    cardStatusErrorBg = Color(0xFF1F1314),
+    // §0.10.13 — AMOLED dark остаётся нейтральным как bgCard. Заливка
+    // только для light theme. См. комментарий в standardColors().
+    cardStatusOkBg    = Color(0xFF141414),
+    cardStatusErrorBg = Color(0xFF141414),
     unreadGreen    = Color(0xFF22C55E),
     presencePaused = Color(0xFFE5A83B),
     borderDivider = Color(0xFF262626),
