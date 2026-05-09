@@ -141,26 +141,37 @@ object MacroOrchestrator {
             // Папка TEMP сама по себе restricted к user (default ACL).
             // restrictAclToCurrentUser(vbsFile)
 
-            // 3. Запускаем cscript HIDDEN. //B = batch mode (no popups).
-            //    //Nologo = без header. //E:vbscript = engine override.
+            // §TZ-DESKTOP-0.10.16 — Capture stderr (раньше DISCARD).
+            // Если cscript падает с ошибкой парсинга или подобным —
+            // увидим текст в detail клиентского debug-event'а.
+            // Также убрали //E:vbscript — cscript сам определит engine
+            // по расширению .vbs (избегаем потенциальных проблем парсинга).
             val proc = ProcessBuilder(
                 "cscript.exe",
-                "//B", "//Nologo", "//E:vbscript",
+                "//B", "//Nologo",
                 vbsFile.absolutePath,
             ).apply {
                 environment()[OUTPUT_ENV] = outputFile.absolutePath
                 redirectErrorStream(true)
-                redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                // Не DISCARD — читаем для diagnostic
             }.start()
 
             val finished = proc.waitFor(MACRO_TIMEOUT_SEC, TimeUnit.SECONDS)
+            // Захватываем stdout+stderr (объединены через redirectErrorStream)
+            val cscriptOutput = runCatching {
+                proc.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText().take(1500) }
+            }.getOrDefault("(no output captured)")
+
             if (!finished) {
                 proc.destroyForcibly()
                 return@withContext Result.Failure("MACRO_TIMEOUT",
-                    "VBS не завершился за $MACRO_TIMEOUT_SEC сек")
+                    "VBS не завершился за $MACRO_TIMEOUT_SEC сек | $cscriptOutput")
             }
             if (proc.exitValue() != 0) {
-                return@withContext Result.Failure("MACRO_EXIT_${proc.exitValue()}")
+                return@withContext Result.Failure(
+                    "MACRO_EXIT_${proc.exitValue()}",
+                    cscriptOutput.ifBlank { "(no stderr)" }
+                )
             }
 
             // 4. Читаем output TSV
