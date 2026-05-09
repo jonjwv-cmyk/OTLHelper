@@ -158,6 +158,19 @@ fun SheetsWorkspace(
                 password = password,
             )
             System.err.println("[OTLD][action] done: ${action.id} ok=$ran")
+            // §TZ-DESKTOP-0.10.13 — если action имеет statusUrl (alive endpoint),
+            // держим lock пока сервер не подтвердит alive=false. Это для случаев
+            // когда run-скрипт триггерит дочерний скрипт (B2) и сам возвращается
+            // быстро — но реальная работа продолжается в дочернем. Без polling
+            // unlock срабатывал слишком рано → юзер видел разблокированный UI
+            // пока B2 ещё писал в таблицу.
+            if (ran && action.hasStatusUrl) {
+                SheetsActionRunner.pollUntilDoneViaServer(
+                    actionId = action.id,
+                    intervalMs = 2_000,
+                    maxAttempts = 180,  // 6 минут — Apps Script max execution time
+                )
+            }
             // Reload + re-inject CSS-маска (после reload URL не меняется,
             // MacSheetsWebView polling skip'ает re-inject).
             runCatching { browser?.reload() }
