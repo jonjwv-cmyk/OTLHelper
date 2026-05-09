@@ -301,51 +301,42 @@ jobs:
           # §TZ-DESKTOP-0.10.22 — компилируем AutoHotkey v2 helper в standalone
           # EXE для targeted hide SAP-окон макро-сессии. Bundle через Compose
           # Desktop appResources (windows/helpers/OtlSapHider.exe). Standalone
-          # EXE ~1.5MB (AHK runtime внутри), не требует ничего дополнительного
-          # на машине юзера. Lifecycle управляется VBS макросом через
-          # targets file.
-          # Pin AHK version (latest stable v2 на момент 2026-05-09).
-          # Обновить если выйдет breaking change. URL на autohotkey.com без
-          # version в имени отдаёт HTML-страницу, не EXE — поэтому через
-          # GitHub release direct download.
+          # EXE ~1.5MB (AHK runtime внутри). Lifecycle управляется VBS
+          # макросом через targets file.
+          #
+          # Используем portable ZIP'ы (не installer) — installer AHK 2.0
+          # `/S` silent flag не работает на CI runner (зависает в interactive
+          # prompt). Portable ZIP просто extract'ится.
           $ahkVersion = "2.0.26"
-          $setup = "ahk-setup.exe"
-          $url = "https://github.com/AutoHotkey/AutoHotkey/releases/download/v$ahkVersion/AutoHotkey_${ahkVersion}_setup.exe"
+          $ahk2exeVersion = "Ahk2Exe1.1.37.02a2"
 
-          Write-Host "Downloading AutoHotkey v$ahkVersion setup from $url"
-          Invoke-WebRequest -Uri $url -OutFile $setup -UseBasicParsing
-          if (-not (Test-Path $setup) -or (Get-Item $setup).Length -lt 1000000) {
-            Write-Error "AHK download failed or file too small ($(if(Test-Path $setup){(Get-Item $setup).Length}else{'missing'}) bytes)"
+          Write-Host "Downloading AutoHotkey v$ahkVersion portable..."
+          Invoke-WebRequest -UseBasicParsing `
+            -Uri "https://github.com/AutoHotkey/AutoHotkey/releases/download/v$ahkVersion/AutoHotkey_$ahkVersion.zip" `
+            -OutFile ahk.zip
+          if (-not (Test-Path ahk.zip) -or (Get-Item ahk.zip).Length -lt 1000000) {
+            Write-Error "AHK portable download failed"
             exit 1
           }
-          Write-Host "✓ Downloaded $((Get-Item $setup).Length) bytes"
+          Expand-Archive ahk.zip -DestinationPath ahk -Force
 
-          Write-Host "Installing AutoHotkey (silent /S)..."
-          $proc = Start-Process $setup -ArgumentList "/S" -Wait -PassThru
-          if ($proc.ExitCode -ne 0) {
-            Write-Error "AHK install failed exit code $($proc.ExitCode)"
+          Write-Host "Downloading Ahk2Exe $ahk2exeVersion..."
+          Invoke-WebRequest -UseBasicParsing `
+            -Uri "https://github.com/AutoHotkey/Ahk2Exe/releases/download/$ahk2exeVersion/$ahk2exeVersion.zip" `
+            -OutFile a2e.zip
+          if (-not (Test-Path a2e.zip) -or (Get-Item a2e.zip).Length -lt 100000) {
+            Write-Error "Ahk2Exe download failed"
             exit 1
           }
+          Expand-Archive a2e.zip -DestinationPath a2e -Force
 
-          Write-Host "Locating Ahk2Exe.exe and AutoHotkey64.exe..."
-          $searchRoots = @(
-            "C:\Program Files\AutoHotkey",
-            "C:\Program Files (x86)\AutoHotkey"
-          ) | Where-Object { Test-Path $_ }
-          $ahk2exe = $null
-          $ahkBase = $null
-          foreach ($root in $searchRoots) {
-            if (-not $ahk2exe) {
-              $ahk2exe = (Get-ChildItem $root -Recurse -Filter "Ahk2Exe.exe" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
-            }
-            if (-not $ahkBase) {
-              $ahkBase = (Get-ChildItem $root -Recurse -Filter "AutoHotkey64.exe" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
-            }
-          }
-
+          $ahkBase = (Get-ChildItem "ahk" -Recurse -Filter "AutoHotkey64.exe" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          $ahk2exe = (Get-ChildItem "a2e" -Recurse -Filter "Ahk2Exe.exe" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
           if (-not $ahk2exe -or -not $ahkBase) {
-            Write-Host "::warning::AHK install layout unexpected — listing Program Files contents:"
-            Get-ChildItem "C:\Program Files" -Directory -ErrorAction SilentlyContinue | Select-Object FullName
+            Write-Host "::warning::Layout unexpected. ahk/ contents:"
+            Get-ChildItem "ahk" -Recurse | Select-Object -First 30 | ForEach-Object { Write-Host "  $($_.FullName)" }
+            Write-Host "a2e/ contents:"
+            Get-ChildItem "a2e" -Recurse | Select-Object -First 30 | ForEach-Object { Write-Host "  $($_.FullName)" }
             Write-Error "AHK binaries not found: ahk2exe=$ahk2exe, base=$ahkBase"
             exit 1
           }
@@ -354,7 +345,7 @@ jobs:
 
           $helperOutDir = "desktop/app-resources/windows/helpers"
           New-Item -Path $helperOutDir -ItemType Directory -Force | Out-Null
-          $helperOut = Resolve-Path -LiteralPath . | Join-Path -ChildPath "$helperOutDir/OtlSapHider.exe"
+          $helperOut = Join-Path (Get-Location).Path "$helperOutDir/OtlSapHider.exe"
           $script = Resolve-Path -LiteralPath "desktop/macro-helpers/OtlSapHider.ahk"
 
           Write-Host "Compiling OtlSapHider.ahk..."
@@ -370,7 +361,8 @@ jobs:
           $sizeKB = [math]::Round((Get-Item $helperOut).Length / 1KB, 1)
           Write-Host "✓ OtlSapHider.exe built — $sizeKB KB → $helperOutDir"
 
-          Remove-Item $setup -Force -ErrorAction SilentlyContinue
+          Remove-Item ahk.zip, a2e.zip -Force -ErrorAction SilentlyContinue
+          Remove-Item ahk, a2e -Recurse -Force -ErrorAction SilentlyContinue
       - name: Build release EXE
         shell: bash
         run: ./gradlew :desktop:packageReleaseExe --no-daemon
