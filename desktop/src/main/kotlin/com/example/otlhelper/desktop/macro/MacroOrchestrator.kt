@@ -70,20 +70,24 @@ object MacroOrchestrator {
      * @param password — введённый юзером, валидируется server-side
      */
     suspend fun runMacro(actionId: String, password: String? = null): Result = withContext(Dispatchers.IO) {
-        // §TZ-DESKTOP-0.10.13 — try/catch ВНЕШНИЙ. Любая exception (cscript
-        // не нашёлся, ACL ошибка, что угодно) превращается в Failure и
-        // логируется на сервер. До этой обёртки exception молча проглатывался
-        // workspaceScope.launch и юзер видел "ничего не произошло".
+        com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+            "MACRO", "runMacro START actionId=$actionId hasPassword=${!password.isNullOrEmpty()}"
+        )
         val r = try {
             runMacroInternal(actionId, password)
         } catch (t: Throwable) {
+            com.example.otlhelper.desktop.core.debug.DebugLogger.error(
+                "MACRO", "runMacroInternal threw exception", t
+            )
             Result.Failure(
                 "EXCEPTION_${t.javaClass.simpleName}",
                 (t.message ?: "no message").take(300)
             )
         }
-        // diagnostic log: и Success и Failure — чтобы видеть в `wrangler tail`
-        // что хоть orchestrator до конца дошёл.
+        com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+            "MACRO", "runMacro END result=${if (r is Result.Success) "Success" else "Failure: ${(r as Result.Failure).reason} | ${r.detail.orEmpty().take(200)}"}"
+        )
+        // diagnostic log на сервер (для tail на server-side когда юзер дёргает)
         runCatching {
             ApiClient.request("client_debug") {
                 put("category", "macro_run")
@@ -105,16 +109,19 @@ object MacroOrchestrator {
         }
 
         // 1. Запрашиваем bundle с сервера (включает password validate)
+        com.example.otlhelper.desktop.core.debug.DebugLogger.log("MACRO", "Step 1: get_macro_bundle")
         val bundle = runCatching {
             ApiClient.request("get_macro_bundle") {
                 put("action_id", actionId)
                 if (!password.isNullOrEmpty()) put("password", password)
             }
         }.getOrElse { e ->
+            com.example.otlhelper.desktop.core.debug.DebugLogger.error("MACRO", "get_macro_bundle network error", e)
             return@withContext Result.Failure("BUNDLE_FETCH", e.message)
         }
         if (!bundle.optBoolean("ok", false)) {
             val err = bundle.optString("error")
+            com.example.otlhelper.desktop.core.debug.DebugLogger.warn("MACRO", "get_macro_bundle returned error: $err")
             return@withContext Result.Failure(
                 if (err == "wrong_password") "WRONG_PASSWORD" else "BUNDLE_ERROR",
                 err
@@ -124,8 +131,10 @@ object MacroOrchestrator {
         val vbsSource = bundle.optString("vbs_source")
         val macroToken = bundle.optString("macro_token")
         if (vbsSource.isEmpty() || macroToken.isEmpty()) {
+            com.example.otlhelper.desktop.core.debug.DebugLogger.warn("MACRO", "bundle missing vbs_source or macro_token")
             return@withContext Result.Failure("BUNDLE_INCOMPLETE")
         }
+        com.example.otlhelper.desktop.core.debug.DebugLogger.log("MACRO", "bundle OK: vbs ${vbsSource.length} chars, token ${macroToken.length} chars")
 
         // 2. Подготавливаем temp файлы (VBS + output TSV)
         val tempDir = File(System.getProperty("java.io.tmpdir"))
@@ -159,11 +168,18 @@ object MacroOrchestrator {
                 // Не DISCARD — читаем для diagnostic
             }.start()
 
+            com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                "MACRO", "Step 3: cscript spawned, vbs=${vbsFile.absolutePath}, output=${outputFile.absolutePath}"
+            )
+
             val finished = proc.waitFor(MACRO_TIMEOUT_SEC, TimeUnit.SECONDS)
-            // Захватываем stdout+stderr (объединены через redirectErrorStream)
             val cscriptOutput = runCatching {
                 proc.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText().take(1500) }
             }.getOrDefault("(no output captured)")
+
+            com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                "MACRO", "cscript finished=$finished exit=${if (finished) proc.exitValue() else -1} stderr=${cscriptOutput.take(200)}"
+            )
 
             if (!finished) {
                 proc.destroyForcibly()
@@ -179,24 +195,34 @@ object MacroOrchestrator {
 
             // 4. Читаем output TSV
             if (!outputFile.exists() || outputFile.length() == 0L) {
+                com.example.otlhelper.desktop.core.debug.DebugLogger.warn(
+                    "MACRO", "Step 4: output file missing or empty (path=${outputFile.absolutePath} exists=${outputFile.exists()} size=${if (outputFile.exists()) outputFile.length() else -1L})"
+                )
                 return@withContext Result.Failure("NO_OUTPUT",
                     "VBS завершился но output файл пуст или отсутствует")
             }
-            // Output из VBS — UTF-16 LE (WriteUnicode в VBS использует BOM).
             val tsv = outputFile.readText(Charsets.UTF_16LE).removePrefix("﻿")
+            com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                "MACRO", "Step 4: TSV read ${tsv.length} chars"
+            )
             if (tsv.isBlank()) {
                 return@withContext Result.Failure("EMPTY_TSV")
             }
 
             // 5. Submit на сервер через E2E
+            com.example.otlhelper.desktop.core.debug.DebugLogger.log("MACRO", "Step 5: submit_macro_data")
             val submitResp = runCatching {
                 ApiClient.request("submit_macro_data") {
                     put("macro_token", macroToken)
                     put("data", tsv)
                 }
             }.getOrElse { e ->
+                com.example.otlhelper.desktop.core.debug.DebugLogger.error("MACRO", "submit_macro_data network", e)
                 return@withContext Result.Failure("SUBMIT_NETWORK", e.message)
             }
+            com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                "MACRO", "submit response ok=${submitResp.optBoolean("ok",false)} rows=${submitResp.optInt("rows_inserted",-1)} b2=${submitResp.optBoolean("b2_triggered",false)} body=${submitResp.toString().take(300)}"
+            )
 
             if (!submitResp.optBoolean("ok", false)) {
                 return@withContext Result.Failure(

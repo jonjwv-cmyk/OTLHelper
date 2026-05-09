@@ -66,6 +66,16 @@ private enum class AppState { RESTORING, LOGIN, MAIN }
  */
 @Composable
 fun App() {
+    // §TZ-DESKTOP-0.10.18 — debug log boot banner. Юзер увидит файл
+    // Desktop\otl-debug.log с этой строкой → знает что app запустился.
+    LaunchedEffect(Unit) {
+        com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+            "BOOT",
+            "OTL Helper ${BuildInfo.VERSION} on ${BuildInfo.OS} | " +
+                "java=${System.getProperty("java.version")} | " +
+                "user.home=${System.getProperty("user.home")}"
+        )
+    }
     var state by remember {
         // Sync SessionStore.load() — file IO ~5-50ms, приемлемо на cold
         // start чтобы избежать LoginScreen flash. LaunchedEffect ниже
@@ -73,6 +83,12 @@ fun App() {
         mutableStateOf(
             if (SessionStore.load() != null) AppState.RESTORING
             else AppState.LOGIN
+        )
+    }
+    // Логируем любой переход state
+    LaunchedEffect(state) {
+        com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+            "STATE", "AppState → $state (login=$login)"
         )
     }
     var login by remember { mutableStateOf("") }
@@ -307,25 +323,29 @@ fun App() {
     //  чистый вход или сброс сессии путем входа на другом пк по коду».
     LaunchedEffect(state, login) {
         if (state == AppState.MAIN && login.isNotBlank()) {
+            com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                "SHEETS", "MAIN entered, starting splash + loadFromServer"
+            )
             com.example.otlhelper.desktop.sheets.SheetsViewBridge.externalSplashOverlay.value = true
-            // §TZ-DESKTOP-0.10.13 — параллельно с splash грузим SheetsRegistry
-            // с сервера (action `get_client_config`). До этого данные были
-            // hardcoded в SheetsRegistry.kt; после публикации репо как
-            // public — перенесены на server (`sheets-registry.js`).
-            // SheetsWorkspace гейтится на SheetsRegistry.loaded — не mount'ится
-            // пока config не пришёл.
             val loadJob = scope.launch(Dispatchers.IO) {
                 val ok = com.example.otlhelper.desktop.sheets.SheetsRegistry.loadFromServer()
+                com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                    "SHEETS", "loadFromServer → ok=$ok, files=${com.example.otlhelper.desktop.sheets.SheetsRegistry.filesList.size}"
+                )
                 if (!ok) {
-                    System.err.println("[OTLD][config] get_client_config failed — Sheets workspace останется пустым")
+                    com.example.otlhelper.desktop.core.debug.DebugLogger.warn(
+                        "SHEETS", "get_client_config failed — workspace останется пустым"
+                    )
                 }
             }
             // 2.5с splash: SheetsWorkspace mount + первый load + CSS-маска.
             kotlinx.coroutines.delay(2_500)
             // Если config ещё не пришёл — ждём чуть дольше (до 5с total).
-            // Иначе SheetsWorkspace покажет пустоту/loader.
             kotlinx.coroutines.withTimeoutOrNull(2_500) { loadJob.join() }
             com.example.otlhelper.desktop.sheets.SheetsViewBridge.externalSplashOverlay.value = false
+            com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                "SHEETS", "splash off, sheetsLoaded=${com.example.otlhelper.desktop.sheets.SheetsRegistry.loaded.value}"
+            )
         }
     }
 
