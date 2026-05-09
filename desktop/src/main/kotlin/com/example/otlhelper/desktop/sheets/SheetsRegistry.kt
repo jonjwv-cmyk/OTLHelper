@@ -61,6 +61,17 @@ data class SheetAction(
      * UI behaviour: на listed tabs показывается overlay + actions disabled.
      */
     val locksTabs: List<String> = emptyList(),
+    /**
+     * §TZ-DESKTOP-0.10.13 — Если non-null, action — macro trigger.
+     * Вместо обычного run_script flow клиент:
+     *   1. Дёргает get_macro_bundle с этим macroId
+     *   2. Получает VBS source + macro_token
+     *   3. Запускает VBS как cscript subprocess (Windows-only)
+     *   4. Ждёт TSV от VBS
+     *   5. Шлёт submit_macro_data с TSV + macro_token
+     *   6. Polls statusUrl (B2 alive) до завершения
+     */
+    val macroId: String? = null,
 )
 
 /** Статически зарегистрированный лист с захардкоженным gid. */
@@ -206,6 +217,7 @@ object SheetsRegistry {
                         locksTabs = a.optJSONArray("locksTabs")?.let { arr ->
                             (0 until arr.length()).map { arr.optString(it) }
                         } ?: emptyList(),
+                        macroId = a.optString("macroId").takeIf { it.isNotEmpty() },
                     )
                 }
                 StaticTab(

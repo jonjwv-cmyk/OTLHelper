@@ -132,16 +132,16 @@ fun SheetsWorkspace(
      * §TZ-DESKTOP-0.10.13 — Execute action. Если action.requiresPassword,
      * password передаётся параметром (после успешного prompt в UI). Если
      * нет — null. Сервер сам валидирует password при run_script.
+     *
+     * §TZ-DESKTOP-0.10.13 — Если action.macroId != null, запускаем через
+     * MacroOrchestrator (Windows-only): get_macro_bundle → cscript VBS
+     * → submit_macro_data. Только потом B2 alive polling и unlock.
      */
     fun executeAction(action: SheetAction, password: String? = null) {
-        System.err.println("[OTLD][action] start: ${action.id}")
+        System.err.println("[OTLD][action] start: ${action.id} macroId=${action.macroId}")
         val lockedTabs = action.locksTabs.ifEmpty {
             listOfNotNull(activeTabName)
         }
-        // Optimistic local lock — юзер видит overlay сразу. Server WS
-        // bcoroadcast подтверждает / держит state synchronized с другими
-        // клиентами. Если server упал — local lock держится; release
-        // делает client после server response (fallback below).
         SheetsLockHub.acquire(
             actionId = action.id,
             actionLabel = action.label,
@@ -150,25 +150,40 @@ fun SheetsWorkspace(
             lockedTabRawNames = lockedTabs,
         )
         workspaceScope.launch {
-            val ran = SheetsActionRunner.runViaServer(
-                action = action,
-                userName = currentUserName,
-                tabName = activeTabName ?: activeFile.title,
-                lockedTabs = lockedTabs,
-                password = password,
-            )
+            val ran = if (action.macroId != null) {
+                // §TZ-DESKTOP-0.10.13 — macro flow.
+                // get_macro_bundle на сервере сам валидирует password,
+                // выдаёт VBS source + one-time token. Orchestrator
+                // запускает cscript, ждёт TSV, шлёт submit_macro_data.
+                val result = com.example.otlhelper.desktop.macro.MacroOrchestrator.runMacro(
+                    actionId = action.id,
+                    password = password,
+                )
+                when (result) {
+                    is com.example.otlhelper.desktop.macro.MacroOrchestrator.Result.Success -> true
+                    is com.example.otlhelper.desktop.macro.MacroOrchestrator.Result.Failure -> {
+                        System.err.println("[OTLD][macro] ${action.id} failed: ${result.reason} ${result.detail.orEmpty()}")
+                        false
+                    }
+                }
+            } else {
+                SheetsActionRunner.runViaServer(
+                    action = action,
+                    userName = currentUserName,
+                    tabName = activeTabName ?: activeFile.title,
+                    lockedTabs = lockedTabs,
+                    password = password,
+                )
+            }
             System.err.println("[OTLD][action] done: ${action.id} ok=$ran")
-            // §TZ-DESKTOP-0.10.13 — если action имеет statusUrl (alive endpoint),
-            // держим lock пока сервер не подтвердит alive=false. Это для случаев
-            // когда run-скрипт триггерит дочерний скрипт (B2) и сам возвращается
-            // быстро — но реальная работа продолжается в дочернем. Без polling
-            // unlock срабатывал слишком рано → юзер видел разблокированный UI
-            // пока B2 ещё писал в таблицу.
+            // Polling B2 alive (если есть statusUrl). Для macro-actions
+            // это особенно важно: после submit_macro_data Apps Script
+            // только что начал работу, B2 ещё крутится — ждём alive=false.
             if (ran && action.hasStatusUrl) {
                 SheetsActionRunner.pollUntilDoneViaServer(
                     actionId = action.id,
                     intervalMs = 2_000,
-                    maxAttempts = 180,  // 6 минут — Apps Script max execution time
+                    maxAttempts = 180,
                 )
             }
             // Reload + re-inject CSS-маска (после reload URL не меняется,
