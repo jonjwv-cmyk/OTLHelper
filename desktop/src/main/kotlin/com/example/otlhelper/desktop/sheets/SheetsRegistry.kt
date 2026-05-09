@@ -21,10 +21,10 @@ import org.json.JSONObject
  *
  * До 0.10.12 здесь были hardcoded:
  *   • Spreadsheet IDs и tab gids
- *   • Apps Script URLs (script.google.com/macros/s/AKfycb...)
- *   • Hardcoded passwords (action.requiresPassword)
+ *   • Apps Script Web App URLs
+ *   • Plaintext passwords для action gating
  * После публикации репо как public — всё чувствительное вынесено на сервер
- * (`server-modular/sheets-registry.js`). Клиент дёргает action
+ * (Cloudflare Worker, sheets-registry.js). Клиент дёргает action
  * `get_client_config` после login и получает sanitized JSON: ids/gids/labels
  * без URL'ов и без plaintext паролей (только bool флаг `requiresPassword`).
  *

@@ -3,14 +3,18 @@ package com.example.otlhelper.desktop.data.security
 /**
  * §TZ-DESKTOP-DIST — обфусцированные константы.
  *
- * Plain-text equivalents (для понимания, не присутствуют в скомпилированном
- * bytecode — там byte-литералы [Obfuscator.decode]):
- *   - VPS_HOST_IP      = "45.12.239.5"            // VPS reverse-proxy перед CF
- *   - BASE_URL         = "https://api.otlhelper.com"
- *   - WS_URL           = "wss://api.otlhelper.com/ws"
- *   - HOST_BASE        = "otlhelper.com"          // DNS lookup compare
- *   - HOST_DOT_SUFFIX  = ".otlhelper.com"         // hostname.endsWith(...) check
- *   - CERT_PATH        = "otl_vps_cert.pem"       // resource путь self-signed cert
+ * Список ключей (значения хранятся как XOR'нутые byte arrays ниже):
+ *   - VPS_HOST_IP      — IP reverse-proxy перед CF
+ *   - BASE_URL         — основной HTTPS endpoint
+ *   - WS_URL           — WebSocket endpoint
+ *   - HOST_BASE        — apex domain (для DNS lookup compare)
+ *   - HOST_DOT_SUFFIX  — `.<apex>` (для hostname.endsWith check)
+ *   - CERT_PATH        — путь к pinned self-signed VPS cert в resources
+ *
+ * Plaintext значения здесь не списком — они нужны только для runtime
+ * (через [Obfuscator.decode]). При reverse-engineering EXE по обфусцированным
+ * байтам всё равно можно их восстановить (это не секреты, а bootstrap-
+ * данные), но бессмысленно дарить grep'у.
  *
  * Декодинг lazy — XOR-цикл выполняется один раз на JVM, результат закэширован
  * в `by lazy`. Память держит plaintext String, но JAR-pool обфусцирован.

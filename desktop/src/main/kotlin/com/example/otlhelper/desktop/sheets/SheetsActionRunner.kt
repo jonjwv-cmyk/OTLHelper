@@ -3,10 +3,7 @@ package com.example.otlhelper.desktop.sheets
 import com.example.otlhelper.desktop.data.network.ApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import org.json.JSONArray
-import java.util.concurrent.TimeUnit
 
 /**
  * §TZ-DESKTOP 0.4.x round 11 — HTTP client для запуска Apps Script
@@ -23,15 +20,6 @@ import java.util.concurrent.TimeUnit
  * thread-safe.
  */
 object SheetsActionRunner {
-
-    private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(5, TimeUnit.MINUTES)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .build()
-    }
 
     /**
      * §TZ-DESKTOP-0.10.13 — выполнить через VPS-сервер. Клиент шлёт ТОЛЬКО
@@ -103,53 +91,9 @@ object SheetsActionRunner {
         false
     }
 
-    /**
-     * Старый прямой GET — оставлен на случай fallback (дев-режим без
-     * сервера или offline). Не используется в основном flow.
-     */
-    suspend fun runScript(url: String): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            val request = Request.Builder().url(url).get().build()
-            client.newCall(request).execute().use { response ->
-                val ok = response.isSuccessful
-                System.err.println("[OTLD][script] $url → HTTP ${response.code} (${if (ok) "ok" else "fail"})")
-                ok
-            }
-        }.getOrElse { e ->
-            System.err.println("[OTLD][script] $url → exception: ${e.message}")
-            false
-        }
-    }
-
-    /**
-     * Polling-helper для actions с `statusUrl` (alive endpoint). Дёргает
-     * URL каждые [intervalMs] и возвращает когда response body ≠ "alive"
-     * (или когда максимум [maxAttempts] исчерпан — fallback timeout).
-     */
-    suspend fun pollUntilDone(
-        statusUrl: String,
-        intervalMs: Long = 2_000,
-        maxAttempts: Int = 90,
-    ): Boolean = withContext(Dispatchers.IO) {
-        repeat(maxAttempts) { attempt ->
-            kotlinx.coroutines.delay(intervalMs)
-            val alive = runCatching {
-                val request = Request.Builder().url(statusUrl).get().build()
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@runCatching false
-                    val body = response.body?.string()?.trim()?.lowercase() ?: ""
-                    // Apps Script returns "true"/"alive"/"running" пока работает,
-                    // "false"/"done"/"completed" по завершении. Считаем что
-                    // любое содержащее "true" / "alive" / "1" — alive.
-                    body.contains("true") || body.contains("alive") || body == "1"
-                }
-            }.getOrDefault(true)  // network error → assume still running
-            if (!alive) {
-                System.err.println("[OTLD][poll] $statusUrl finished after ${attempt + 1} attempts")
-                return@withContext true
-            }
-        }
-        System.err.println("[OTLD][poll] $statusUrl timeout after $maxAttempts attempts")
-        false
-    }
+    // §TZ-DESKTOP-0.10.13 — удалены legacy функции `runScript(url)` и
+    // `pollUntilDone(statusUrl)`. Они принимали Apps Script URL напрямую
+    // от клиента, что после миграции на server-side registry стало
+    // dead-кодом (никто не вызывал). Сейчас весь flow только через
+    // runViaServer + pollUntilDoneViaServer (action_id, не URL).
 }
