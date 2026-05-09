@@ -164,19 +164,15 @@ object MacroOrchestrator {
                 vbsFile.absolutePath,
             ).apply {
                 environment()[OUTPUT_ENV] = outputFile.absolutePath
-                // §TZ-DESKTOP-0.10.22 — путь к bundled SAP hider helper.
-                // VBS макрос (если env var задан) спавнит helper async и пишет
-                // в targets file HWND-ы созданной им macro-session. Helper
-                // делает SW_HIDE только на эти HWND — существующие SAP-сессии
-                // юзера (в которых он работает) не трогаются. Если helper
-                // не найден — VBS fallback iconify-only.
-                findSapHiderExe()?.let { hiderExe ->
-                    environment()["OTL_SAP_HIDER_EXE"] = hiderExe.absolutePath
-                    com.example.otlhelper.desktop.core.debug.DebugLogger.log(
-                        "MACRO", "SAP hider helper found: ${hiderExe.absolutePath}"
-                    )
-                } ?: com.example.otlhelper.desktop.core.debug.DebugLogger.log(
-                    "MACRO", "SAP hider helper NOT found — fallback iconify-only"
+                // §TZ-DESKTOP-0.10.24 ROLLBACK — env var отключён.
+                // SW_HIDE ломает SAP scripting (SAP вызывает SetForegroundWindow
+                // / BringWindowToTop, эти API не работают на скрытых окнах →
+                // SAP попадает в "Не отвечает", VBS виснет на действиях с
+                // popup-окнами). Iconify-only единственно стабильный путь.
+                // Helper EXE остаётся bundled (no harm), но VBS его не
+                // запускает (env var пустой → StartSapHider early-exit).
+                com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                    "MACRO", "SAP hider helper disabled (incompatible with SAP scripting)"
                 )
                 redirectErrorStream(true)
                 // Не DISCARD — читаем для diagnostic
