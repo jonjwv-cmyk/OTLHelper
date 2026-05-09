@@ -304,15 +304,21 @@ jobs:
           # EXE ~1.5MB (AHK runtime внутри), не требует ничего дополнительного
           # на машине юзера. Lifecycle управляется VBS макросом через
           # targets file.
+          # Pin AHK version (latest stable v2 на момент 2026-05-09).
+          # Обновить если выйдет breaking change. URL на autohotkey.com без
+          # version в имени отдаёт HTML-страницу, не EXE — поэтому через
+          # GitHub release direct download.
+          $ahkVersion = "2.0.26"
           $setup = "ahk-setup.exe"
-          $url = "https://www.autohotkey.com/download/2.0/AutoHotkey_2.0_setup.exe"
+          $url = "https://github.com/AutoHotkey/AutoHotkey/releases/download/v$ahkVersion/AutoHotkey_${ahkVersion}_setup.exe"
 
-          Write-Host "Downloading AutoHotkey v2 setup..."
-          Invoke-WebRequest -Uri $url -OutFile $setup
-          if (-not (Test-Path $setup)) {
-            Write-Error "AHK download failed"
+          Write-Host "Downloading AutoHotkey v$ahkVersion setup from $url"
+          Invoke-WebRequest -Uri $url -OutFile $setup -UseBasicParsing
+          if (-not (Test-Path $setup) -or (Get-Item $setup).Length -lt 1000000) {
+            Write-Error "AHK download failed or file too small ($(if(Test-Path $setup){(Get-Item $setup).Length}else{'missing'}) bytes)"
             exit 1
           }
+          Write-Host "✓ Downloaded $((Get-Item $setup).Length) bytes"
 
           Write-Host "Installing AutoHotkey (silent /S)..."
           $proc = Start-Process $setup -ArgumentList "/S" -Wait -PassThru
