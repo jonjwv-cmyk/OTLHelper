@@ -55,6 +55,20 @@ object SheetsCss {
             display: none !important;
         }
 
+        /* §0.10.25 — hide bottom-right "collapse sheet tabs" arrow.
+           Юзер видит свои tabs через наш TabStrip, нативный navigator
+           Google не нужен. Селекторы: разные версии Sheets dom. */
+        .docs-sheet-toggle-tabs-button,
+        .docs-sheet-bar-toggle,
+        .docs-sheet-bar-zoom-bar,
+        .docs-sheet-tabs-overflow-toggle,
+        button[aria-label*="Скрыть листы"],
+        button[aria-label*="Hide sheet"],
+        button[aria-label*="Show sheet"],
+        button[aria-label*="Показать листы"] {
+            display: none !important;
+        }
+
         /* ──────────────────────────────────────────────────────
          * 2) Большая иконка Google Sheets в верхнем-левом углу
          *    (ведёт на Drive — отдельная страница со списком файлов

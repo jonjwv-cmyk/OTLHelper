@@ -141,6 +141,11 @@ private object WinSheetsLog {
         runCatching {
             File(path).appendText("[${LocalTime.now().format(ts)}] $msg\n")
         }
+        // §0.10.25 — дублируем в Desktop\otl-debug.log чтобы юзер видел всё
+        // в одном файле без копания по %LOCALAPPDATA%\.otldhelper\webview2\.
+        runCatching {
+            com.example.otlhelper.desktop.core.debug.DebugLogger.log("WV2", msg)
+        }
     }
 
     /** Structured event log: `[HH:MM:SS.mmm] [event=mount] details` */
@@ -148,6 +153,9 @@ private object WinSheetsLog {
         runCatching {
             val line = "[${LocalTime.now().format(ts)}] [event=$tag] $details\n"
             File(path).appendText(line)
+        }
+        runCatching {
+            com.example.otlhelper.desktop.core.debug.DebugLogger.log("WV2", "$tag $details")
         }
     }
 }
