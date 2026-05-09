@@ -624,6 +624,13 @@ fun App() {
         // без промежуточного экрана.
 
         // §TZ-0.10.5 — Extension prompt за 5 мин до конца окна, если ext доступны.
+        // §TZ-DESKTOP-0.10.13 — onDismiss теперь делает immediate logout вместо
+        // dismissExtensionPrompt(). Юзер: «кнопка отмены не сбрасывает как
+        // положено сессию чтобы был экран QR кода». Раньше Cancel просто
+        // скрывал диалог, сессия дотикивала до истечения, юзер сидел в
+        // потенциально мёртвой сессии — clicks падали с 401 на следующих
+        // /api запросах. Теперь Cancel = explicit logout → LoginScreen с QR.
+        // Та же логика для X-кнопки в title bar (через onCloseRequest).
         if (state == AppState.MAIN && lifecycleState.shouldShowExtensionPrompt) {
             ExtensionPromptDialog(
                 yekHm = lifecycleState.yekHm,
@@ -631,7 +638,7 @@ fun App() {
                 onExtend = {
                     scope.launch { sessionLifecycle.extend() }
                 },
-                onDismiss = { sessionLifecycle.dismissExtensionPrompt() },
+                onDismiss = { performLogout() },
             )
         }
     }

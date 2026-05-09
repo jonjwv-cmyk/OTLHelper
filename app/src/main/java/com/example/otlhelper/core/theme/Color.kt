@@ -27,6 +27,11 @@ data class OtlColors(
     val statusError: Color,
     val statusOkBorder: Color,
     val statusErrorBorder: Color,
+    // §TZ-DESKTOP-0.10.13 — subtle status fills для карточек (MolRecordCard).
+    // Раньше различие «работает / уволен» было только по border'у — на маленьких
+    // экранах слабо видно. Теперь дополнительно тонкая заливка фона.
+    val cardStatusOkBg: Color,
+    val cardStatusErrorBg: Color,
     // Misc signals
     val unreadGreen: Color,
     val presencePaused: Color,
@@ -66,6 +71,10 @@ internal fun standardColors() = OtlColors(
     statusError       = Color(0xFF7F1D1D),
     statusOkBorder    = Color(0xFF22C55E),
     statusErrorBorder = Color(0xFFEF4444),
+    // §0.10.13 — лёгкий зелёно-/красноватый оттенок BgCard для карточек.
+    // Standard dark: BgCard #1A1A1C → +5% green/red.
+    cardStatusOkBg    = Color(0xFF1A2620),
+    cardStatusErrorBg = Color(0xFF26191B),
     unreadGreen    = Color(0xFF22C55E),
     presencePaused = Color(0xFFE5A83B),
     borderDivider = Color(0xFF363640),
@@ -99,6 +108,9 @@ internal fun darkColors() = OtlColors(
     statusError       = Color(0xFF450A0A),
     statusOkBorder    = Color(0xFF22C55E),
     statusErrorBorder = Color(0xFFEF4444),
+    // §0.10.13 — AMOLED dark: BgCard #141414 → очень субтильный зелёный/красный.
+    cardStatusOkBg    = Color(0xFF112019),
+    cardStatusErrorBg = Color(0xFF1F1314),
     unreadGreen    = Color(0xFF22C55E),
     presencePaused = Color(0xFFE5A83B),
     borderDivider = Color(0xFF262626),
@@ -133,6 +145,10 @@ internal fun lightColors() = OtlColors(
     statusError       = Color(0xFFFEE2E2),
     statusOkBorder    = Color(0xFF16A34A),
     statusErrorBorder = Color(0xFFDC2626),
+    // §0.10.13 — Light theme: пастельные оттенки на белом фоне. Однозначно
+    // видно но не резко (не как обычный красный/зелёный alert).
+    cardStatusOkBg    = Color(0xFFECFDF5),
+    cardStatusErrorBg = Color(0xFFFEF2F2),
     unreadGreen    = Color(0xFF16A34A),
     presencePaused = Color(0xFFD97706),
     borderDivider = Color(0xFFD1D1D6),
@@ -189,6 +205,10 @@ val StatusOkBorder: Color
     @Composable get() = LocalOtlColors.current.statusOkBorder
 val StatusErrorBorder: Color
     @Composable get() = LocalOtlColors.current.statusErrorBorder
+val CardStatusOkBg: Color
+    @Composable get() = LocalOtlColors.current.cardStatusOkBg
+val CardStatusErrorBg: Color
+    @Composable get() = LocalOtlColors.current.cardStatusErrorBg
 
 val UnreadGreen: Color
     @Composable get() = LocalOtlColors.current.unreadGreen

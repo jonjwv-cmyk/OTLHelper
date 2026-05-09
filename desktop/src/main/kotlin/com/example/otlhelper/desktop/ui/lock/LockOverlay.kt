@@ -151,8 +151,11 @@ fun ExtensionPromptDialog(
                     Text("Продлить +30 мин", fontWeight = FontWeight.SemiBold)
                 }
                 Spacer(Modifier.height(8.dp))
+                // §TZ-DESKTOP-0.10.13 — onDismiss сейчас performLogout (не
+                // просто скрытие диалога). Label поменян чтобы это было
+                // явно — юзер выходит из сессии полностью, сразу видит QR.
                 androidx.compose.material3.TextButton(onClick = onDismiss) {
-                    Text("Не сейчас", color = TextSecondary, fontSize = 12.sp)
+                    Text("Завершить сессию", color = TextSecondary, fontSize = 12.sp)
                 }
             }
         }

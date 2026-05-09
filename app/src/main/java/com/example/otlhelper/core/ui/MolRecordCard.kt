@@ -32,7 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.otlhelper.core.theme.BgCard
+import com.example.otlhelper.core.theme.CardStatusErrorBg
+import com.example.otlhelper.core.theme.CardStatusOkBg
 import com.example.otlhelper.core.theme.BorderDivider
 import com.example.otlhelper.core.ui.components.ThinDivider
 import com.example.otlhelper.core.theme.StatusErrorBorder
@@ -71,6 +72,11 @@ fun MolRecordCard(
 
     val isWorking = record.status.trim().equals("работает", ignoreCase = true)
     val borderColor = if (isWorking) StatusOkBorder else StatusErrorBorder
+    // §0.10.13 — субтильная заливка карточки в цвет статуса. Раньше отличие
+    // было только по border'у — на маленьких screen'ах слабо считывалось.
+    // Теперь BgCard заменяется на CardStatusOkBg (зеленоватый) или
+    // CardStatusErrorBg (красноватый) — однозначно, но не агрессивно.
+    val cardBgColor = if (isWorking) CardStatusOkBg else CardStatusErrorBg
 
     // Warehouses list for this person — only shown when NOT warehouse-search
     // (warehouse search already shows the warehouse context up top).
@@ -83,7 +89,7 @@ fun MolRecordCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(CardShape)
-            .background(BgCard, CardShape)
+            .background(cardBgColor, CardShape)
             .border(1.5.dp, borderColor, CardShape)
             .then(
                 if (hasExtra) Modifier.clickable {
