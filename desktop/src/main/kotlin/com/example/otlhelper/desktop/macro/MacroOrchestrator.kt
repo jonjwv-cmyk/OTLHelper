@@ -141,14 +141,17 @@ object MacroOrchestrator {
             // Папка TEMP сама по себе restricted к user (default ACL).
             // restrictAclToCurrentUser(vbsFile)
 
-            // §TZ-DESKTOP-0.10.16 — Capture stderr (раньше DISCARD).
-            // Если cscript падает с ошибкой парсинга или подобным —
-            // увидим текст в detail клиентского debug-event'а.
-            // Также убрали //E:vbscript — cscript сам определит engine
-            // по расширению .vbs (избегаем потенциальных проблем парсинга).
+            // §TZ-DESKTOP-0.10.17 — Убрали //B (batch mode). //B подавляет
+            // stderr → 0.10.16 показал "(no stderr)" даже при exit 1.
+            // Без //B cscript печатает ошибки в stderr нормально.
+            // MsgBox в VBS НЕТ (все удалены) — //B был нужен только
+            // для подавления UI-диалогов, но их нет.
+            // ALSO: НЕ удаляем VBS file (закомментил secureDelete) —
+            // юзер может найти файл в TEMP и запустить cscript руками
+            // для дальнейшей диагностики.
             val proc = ProcessBuilder(
                 "cscript.exe",
-                "//B", "//Nologo",
+                "//Nologo",
                 vbsFile.absolutePath,
             ).apply {
                 environment()[OUTPUT_ENV] = outputFile.absolutePath
@@ -207,8 +210,10 @@ object MacroOrchestrator {
             delay(2_000)
             return@withContext Result.Success
         } finally {
-            // 6. Cleanup temp files (best-effort secure delete)
-            secureDelete(vbsFile)
+            // §TZ-DESKTOP-0.10.17 — secureDelete VBS ВРЕМЕННО ОТКЛЮЧЕН для
+            // diagnostic. После решения проблемы вернуть. Output file всё
+            // ещё чистится (не содержит секретов).
+            // secureDelete(vbsFile)
             secureDelete(outputFile)
         }
     }
