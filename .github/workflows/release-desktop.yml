@@ -349,13 +349,14 @@ jobs:
           $script = Resolve-Path -LiteralPath "desktop/macro-helpers/OtlSapHider.ahk"
 
           Write-Host "Compiling OtlSapHider.ahk..."
-          & $ahk2exe /in $script /out $helperOut /base $ahkBase
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Ahk2Exe failed exit code $LASTEXITCODE"
-            exit 1
-          }
+          # Ahk2Exe — GUI app, & оператор не ждёт finish и LASTEXITCODE
+          # некорректен. Start-Process -Wait надёжно ждёт завершения.
+          $proc = Start-Process -FilePath $ahk2exe `
+            -ArgumentList "/in", $script, "/out", $helperOut, "/base", $ahkBase `
+            -Wait -PassThru -NoNewWindow
+          Write-Host "Ahk2Exe exit code: $($proc.ExitCode)"
           if (-not (Test-Path $helperOut)) {
-            Write-Error "Compile failed — output EXE missing at $helperOut"
+            Write-Error "Compile failed — output EXE missing at $helperOut (exit=$($proc.ExitCode))"
             exit 1
           }
           $sizeKB = [math]::Round((Get-Item $helperOut).Length / 1KB, 1)
