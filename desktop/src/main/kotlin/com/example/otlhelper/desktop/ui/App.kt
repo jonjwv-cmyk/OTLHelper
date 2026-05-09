@@ -85,13 +85,13 @@ fun App() {
             else AppState.LOGIN
         )
     }
-    // Логируем любой переход state
+    var login by remember { mutableStateOf("") }
+    // Логируем любой переход state (после declaration login)
     LaunchedEffect(state) {
         com.example.otlhelper.desktop.core.debug.DebugLogger.log(
             "STATE", "AppState → $state (login=$login)"
         )
     }
-    var login by remember { mutableStateOf("") }
     var fullName by remember { mutableStateOf("") }
     var avatarUrl by remember { mutableStateOf("") }
     var role by remember { mutableStateOf(Role.User) }
