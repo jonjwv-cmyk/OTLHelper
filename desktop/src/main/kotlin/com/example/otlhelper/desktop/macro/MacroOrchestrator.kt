@@ -135,9 +135,11 @@ object MacroOrchestrator {
 
         try {
             vbsFile.writeText(vbsSource, Charsets.UTF_8)
-            restrictAclToCurrentUser(vbsFile)
-            // Output file заранее не создаём — VBS его создаст; но ACL
-            // на родительский dir (TEMP) уже restrictive по дефолту в Win.
+            // §TZ-DESKTOP-0.10.14 — ACL restriction TEMPORARILY DISABLED.
+            // Подозрение: restrictAclToCurrentUser убирает inheritance →
+            // cscript почему-то не может прочитать файл (или специфика NTFS).
+            // Папка TEMP сама по себе restricted к user (default ACL).
+            // restrictAclToCurrentUser(vbsFile)
 
             // 3. Запускаем cscript HIDDEN. //B = batch mode (no popups).
             //    //Nologo = без header. //E:vbscript = engine override.
