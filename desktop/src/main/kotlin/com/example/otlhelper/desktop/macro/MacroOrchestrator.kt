@@ -70,6 +70,35 @@ object MacroOrchestrator {
      * @param password — введённый юзером, валидируется server-side
      */
     suspend fun runMacro(actionId: String, password: String? = null): Result = withContext(Dispatchers.IO) {
+        // §TZ-DESKTOP-0.10.13 — try/catch ВНЕШНИЙ. Любая exception (cscript
+        // не нашёлся, ACL ошибка, что угодно) превращается в Failure и
+        // логируется на сервер. До этой обёртки exception молча проглатывался
+        // workspaceScope.launch и юзер видел "ничего не произошло".
+        val r = try {
+            runMacroInternal(actionId, password)
+        } catch (t: Throwable) {
+            Result.Failure(
+                "EXCEPTION_${t.javaClass.simpleName}",
+                (t.message ?: "no message").take(300)
+            )
+        }
+        // diagnostic log: и Success и Failure — чтобы видеть в `wrangler tail`
+        // что хоть orchestrator до конца дошёл.
+        runCatching {
+            ApiClient.request("client_debug") {
+                put("category", "macro_run")
+                put("action_id", actionId)
+                put("status", if (r is Result.Success) "ok" else "fail")
+                if (r is Result.Failure) {
+                    put("reason", r.reason)
+                    put("detail", r.detail ?: "")
+                }
+            }
+        }
+        r
+    }
+
+    private suspend fun runMacroInternal(actionId: String, password: String?): Result = withContext(Dispatchers.IO) {
         if (!BuildInfo.IS_WINDOWS) {
             return@withContext Result.Failure("NOT_WINDOWS",
                 "Макрос работает только на Windows (требуется SAP GUI Scripting)")
