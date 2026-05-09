@@ -164,6 +164,20 @@ object MacroOrchestrator {
                 vbsFile.absolutePath,
             ).apply {
                 environment()[OUTPUT_ENV] = outputFile.absolutePath
+                // §TZ-DESKTOP-0.10.22 — путь к bundled SAP hider helper.
+                // VBS макрос (если env var задан) спавнит helper async и пишет
+                // в targets file HWND-ы созданной им macro-session. Helper
+                // делает SW_HIDE только на эти HWND — существующие SAP-сессии
+                // юзера (в которых он работает) не трогаются. Если helper
+                // не найден — VBS fallback iconify-only.
+                findSapHiderExe()?.let { hiderExe ->
+                    environment()["OTL_SAP_HIDER_EXE"] = hiderExe.absolutePath
+                    com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                        "MACRO", "SAP hider helper found: ${hiderExe.absolutePath}"
+                    )
+                } ?: com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                    "MACRO", "SAP hider helper NOT found — fallback iconify-only"
+                )
                 redirectErrorStream(true)
                 // Не DISCARD — читаем для diagnostic
             }.start()
@@ -242,6 +256,35 @@ object MacroOrchestrator {
             // secureDelete(vbsFile)
             secureDelete(outputFile)
         }
+    }
+
+    /**
+     * §TZ-DESKTOP-0.10.22 — Find bundled SAP hider helper EXE.
+     *
+     * Primary location: `<compose.application.resources.dir>/helpers/OtlSapHider.exe`
+     * — bundled через Compose Desktop appResourcesRootDir в Win EXE.
+     *
+     * Fallback: `~/.otldhelper/helpers/OtlSapHider.exe` — для testing/manual
+     * deploy без переустановки EXE (юзер кладёт скомпилированный helper
+     * вручную).
+     *
+     * Возвращает null если helper не найден (на Mac всегда null — макрос
+     * не работает на Mac, но this defense in depth) → VBS fallback iconify.
+     */
+    private fun findSapHiderExe(): File? {
+        if (!BuildInfo.IS_WINDOWS) return null
+
+        val resourcesDir = System.getProperty("compose.application.resources.dir")
+        if (!resourcesDir.isNullOrBlank()) {
+            val bundled = File(resourcesDir, "helpers/OtlSapHider.exe")
+            if (bundled.exists() && bundled.canExecute()) return bundled
+        }
+
+        val userHome = System.getProperty("user.home") ?: return null
+        val userPath = File(userHome, ".otldhelper/helpers/OtlSapHider.exe")
+        if (userPath.exists() && userPath.canExecute()) return userPath
+
+        return null
     }
 
     /**

@@ -295,6 +295,76 @@ jobs:
           # Cleanup downloaded archive + extracted (только bundle нужен в EXE)
           Remove-Item $vlcArchive -Force
           Remove-Item "vlc-extracted" -Recurse -Force
+      - name: Compile OtlSapHider helper (AHK → EXE)
+        shell: pwsh
+        run: |
+          # §TZ-DESKTOP-0.10.22 — компилируем AutoHotkey v2 helper в standalone
+          # EXE для targeted hide SAP-окон макро-сессии. Bundle через Compose
+          # Desktop appResources (windows/helpers/OtlSapHider.exe). Standalone
+          # EXE ~1.5MB (AHK runtime внутри), не требует ничего дополнительного
+          # на машине юзера. Lifecycle управляется VBS макросом через
+          # targets file.
+          $setup = "ahk-setup.exe"
+          $url = "https://www.autohotkey.com/download/2.0/AutoHotkey_2.0_setup.exe"
+
+          Write-Host "Downloading AutoHotkey v2 setup..."
+          Invoke-WebRequest -Uri $url -OutFile $setup
+          if (-not (Test-Path $setup)) {
+            Write-Error "AHK download failed"
+            exit 1
+          }
+
+          Write-Host "Installing AutoHotkey (silent /S)..."
+          $proc = Start-Process $setup -ArgumentList "/S" -Wait -PassThru
+          if ($proc.ExitCode -ne 0) {
+            Write-Error "AHK install failed exit code $($proc.ExitCode)"
+            exit 1
+          }
+
+          Write-Host "Locating Ahk2Exe.exe and AutoHotkey64.exe..."
+          $searchRoots = @(
+            "C:\Program Files\AutoHotkey",
+            "C:\Program Files (x86)\AutoHotkey"
+          ) | Where-Object { Test-Path $_ }
+          $ahk2exe = $null
+          $ahkBase = $null
+          foreach ($root in $searchRoots) {
+            if (-not $ahk2exe) {
+              $ahk2exe = (Get-ChildItem $root -Recurse -Filter "Ahk2Exe.exe" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+            }
+            if (-not $ahkBase) {
+              $ahkBase = (Get-ChildItem $root -Recurse -Filter "AutoHotkey64.exe" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+            }
+          }
+
+          if (-not $ahk2exe -or -not $ahkBase) {
+            Write-Host "::warning::AHK install layout unexpected — listing Program Files contents:"
+            Get-ChildItem "C:\Program Files" -Directory -ErrorAction SilentlyContinue | Select-Object FullName
+            Write-Error "AHK binaries not found: ahk2exe=$ahk2exe, base=$ahkBase"
+            exit 1
+          }
+          Write-Host "Ahk2Exe: $ahk2exe"
+          Write-Host "Base:    $ahkBase"
+
+          $helperOutDir = "desktop/app-resources/windows/helpers"
+          New-Item -Path $helperOutDir -ItemType Directory -Force | Out-Null
+          $helperOut = Resolve-Path -LiteralPath . | Join-Path -ChildPath "$helperOutDir/OtlSapHider.exe"
+          $script = Resolve-Path -LiteralPath "desktop/macro-helpers/OtlSapHider.ahk"
+
+          Write-Host "Compiling OtlSapHider.ahk..."
+          & $ahk2exe /in $script /out $helperOut /base $ahkBase
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Ahk2Exe failed exit code $LASTEXITCODE"
+            exit 1
+          }
+          if (-not (Test-Path $helperOut)) {
+            Write-Error "Compile failed — output EXE missing at $helperOut"
+            exit 1
+          }
+          $sizeKB = [math]::Round((Get-Item $helperOut).Length / 1KB, 1)
+          Write-Host "✓ OtlSapHider.exe built — $sizeKB KB → $helperOutDir"
+
+          Remove-Item $setup -Force -ErrorAction SilentlyContinue
       - name: Build release EXE
         shell: bash
         run: ./gradlew :desktop:packageReleaseExe --no-daemon
