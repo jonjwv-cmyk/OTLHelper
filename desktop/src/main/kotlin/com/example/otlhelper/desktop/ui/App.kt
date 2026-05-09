@@ -490,9 +490,7 @@ fun App() {
                 // null → крэш. Пока loaded=false показываем пустоту: cat splash
                 // из LaunchedEffect выше визуально это перекрывает.
                 val sheetsLoaded by com.example.otlhelper.desktop.sheets.SheetsRegistry.loaded.collectAsState()
-                if (!sheetsLoaded) {
-                    return@when
-                }
+                if (sheetsLoaded) {
                 val repos = remember(login) {
                     if (login.isBlank()) null
                     else SessionRepos(
@@ -589,6 +587,7 @@ fun App() {
                         },
                     )
                 }
+                }  // ← закрывает if (sheetsLoaded) выше (§0.10.13 macro gate)
             }
         }
 
