@@ -219,6 +219,22 @@ internal class WinSheetsWebViewState(
     /** Last applied frame для skip duplicate setWebViewFrame в polling. */
     private var lastFrame: androidx.compose.ui.geometry.Rect? = null
 
+    /** §0.11.14 — timestamp of last attachToWindow для bypass cache-skip
+     *  первые 5 секунд после attach. Решает first-mount stale frame:
+     *  Compose layout ещё не финализирован к моменту attach → pendingBounds
+     *  early-value cached → последующий polling cache-skip'ит правильный
+     *  bound → юзер видит чёрную полосу снизу (Box background просвечивает
+     *  под WebView2 с неправильной высотой). */
+    @Volatile
+    private var attachedAt: Long = 0L
+
+    /** §0.11.14 — сбросить кэш для force apply следующего updateFrame.
+     *  Вызывается из reveal pipeline перед setVisible(true) чтобы
+     *  гарантированно применить актуальный pendingBounds. */
+    fun invalidateFrameCache() {
+        lastFrame = null
+    }
+
     private var navigationCallback: WinNavigationCallback? = null
 
     /** Возвращает: 0 = success, 1 = Runtime missing, 2 = init error (не Runtime).
@@ -312,6 +328,10 @@ internal class WinSheetsWebViewState(
             WinWebViewNative.instance.setWebViewVisible(webViewId, false)
             WinWebViewNative.instance.forceWebViewDisplay(webViewId)
             isAttached = true
+            // §0.11.14 — отметка времени для bypass cache-skip первые 5 сек.
+            // См. updateFrame() и поле attachedAt.
+            attachedAt = System.currentTimeMillis()
+            lastFrame = null  // forced fresh apply на первый updateFrame
             true
         }.getOrElse {
             println("[OTLD][Sheets][WebView2] attach failed: ${it.message}")
@@ -327,8 +347,18 @@ internal class WinSheetsWebViewState(
         // с tolerance. Compose recomposes могут давать sub-pixel changes
         // (1228.0 → 1227.95) — без tolerance каждый recompose триггерит
         // setWebViewFrame → юзер видит "фризы/мерцание" на границах.
+        //
+        // §0.11.14 — bypass cache-skip первые 5 секунд после attachToWindow.
+        // На первом mount Compose layout ещё не финализирован → pendingBounds
+        // ранний "stale" snapshot → cache → polling cache-skip фиксирует его
+        // навсегда → юзер видит чёрную полосу снизу таблицы (Box background
+        // #0E0E10 виден ниже WebView2). 5s окно достаточно чтобы Compose
+        // успел зарелайаутить и Sheets bootstrap'нуться. После 5s — обычное
+        // поведение (cache-skip защищает от мерцания на reflow recomposes).
+        val sinceAttach = System.currentTimeMillis() - attachedAt
+        val warmingUp = attachedAt > 0L && sinceAttach < 5_000L
         val cached = lastFrame
-        if (cached != null
+        if (!warmingUp && cached != null
             && kotlin.math.abs(cached.left - bounds.left) < 0.5f
             && kotlin.math.abs(cached.top - bounds.top) < 0.5f
             && kotlin.math.abs(cached.width - bounds.width) < 0.5f
@@ -656,6 +686,18 @@ internal fun WinSheetsWebView(
             WinSheetsLog.log("Calling attachToWindow...")
             val attached = withContext(webView2Dispatcher) { state.attachToWindow(window) }
             WinSheetsLog.log("attachToWindow returned $attached")
+            // §0.11.14 — repaint composeWindow перед initial frame.
+            // Симптом: после logout/login (state recreate → new webView2 id=2
+            // attached к тому же HWND) юзер видел белый экран. Sheets DOM
+            // загружен (JS PROBE видит canvas/grid/editor), но WebView2 GPU
+            // surface не invalidate'ил area от старого webViewId=1. AWT
+            // repaint() помечает component tree dirty → Compose следующим
+            // frame перерисует Box-фон → Edge получит invalidation event.
+            runCatching {
+                javax.swing.SwingUtilities.invokeLater {
+                    window.repaint()
+                }
+            }
             // §TZ-DESKTOP-NATIVE-2026-05 0.8.6 — immediate initial frame.
             // Без этого webview visible но bounds=(0,0,0,0). Если pendingBounds
             // ещё null (Compose layout не завершён) — fallback на window size
@@ -669,10 +711,38 @@ internal fun WinSheetsWebView(
             withContext(webView2Dispatcher) {
                 state.updateFrame(initialBounds, density.density)
             }
-            pendingBounds?.let { bounds ->
+            // §0.11.14 — POST-ATTACH DOUBLE-NUDGE для борьбы с HWND residue.
+            // После logout/login новый WebView2 attached к тому же HWND, но
+            // GPU surface остаётся с артефактами старого webview (на скрине 2
+            // видна полоска вдоль левого края). Один updateFrame с initial
+            // bounds недостаточно — Edge не репеинтит уже "видимую" area.
+            // Nudge: bounds → shrink 2px → bounds. ResizeObserver fires
+            // → Edge force-repaints surface → residue очищается.
+            //
+            // delay 80ms — empirical минимум который Edge успевает обработать
+            // (тот же интервал в pre-reveal-nudge на line 952).
+            val nudgeBase = pendingBounds ?: initialBounds
+            if (nudgeBase.width >= 30f && nudgeBase.height >= 30f) {
+                kotlinx.coroutines.delay(80)
+                val shrunk = androidx.compose.ui.geometry.Rect(
+                    left = nudgeBase.left,
+                    top = nudgeBase.top,
+                    right = nudgeBase.right - 2f,
+                    bottom = nudgeBase.bottom - 2f,
+                )
                 withContext(webView2Dispatcher) {
-                    state.updateFrame(bounds, density.density)
+                    state.invalidateFrameCache()
+                    state.updateFrame(shrunk, density.density)
                 }
+                kotlinx.coroutines.delay(80)
+                withContext(webView2Dispatcher) {
+                    state.invalidateFrameCache()
+                    state.updateFrame(nudgeBase, density.density)
+                }
+                WinSheetsLog.event(
+                    "post-attach-nudge",
+                    "applied bounds=${nudgeBase.width.toInt()}x${nudgeBase.height.toInt()}",
+                )
             }
         }
 
@@ -988,6 +1058,27 @@ internal fun WinSheetsWebView(
                 WinSheetsLog.event("reveal-done", "isSpreadsheet=$isSpreadsheet")
                 revealed = true
                 revealingFlow.value = false  // 0.8.59 — unblock clicks
+                // §0.11.14 — FORCE FRESH FRAME перед setVisible(true).
+                // Сбрасываем cache и переприменяем актуальный pendingBounds.
+                // Это критично для первого reveal: initial frame
+                // (line 670) был применён рано когда Compose layout мог быть
+                // не финализирован. К моменту reveal-done (10-30s позже)
+                // Sheets bootstrap прошёл и pendingBounds — стабильный
+                // финальный размер. Без force-apply cache-skip пропустил
+                // бы этот update → WebView2 застрял бы со stale bounds →
+                // чёрная полоса (Box #0E0E10) ниже WebView2.
+                val freshBounds = pendingBounds
+                if (freshBounds != null && freshBounds.width > 0 && freshBounds.height > 0) {
+                    state.invalidateFrameCache()
+                    withContext(webView2Dispatcher) {
+                        state.updateFrame(freshBounds, density.density)
+                    }
+                    WinSheetsLog.event(
+                        "force-frame-apply",
+                        "bounds=${freshBounds.left.toInt()},${freshBounds.top.toInt()}," +
+                            "${freshBounds.width.toInt()}x${freshBounds.height.toInt()}",
+                    )
+                }
                 // §TZ-DESKTOP-NATIVE-2026-05 0.8.34 — учитываем externalVisible.
                 // Если контролёр (например Search dialog) выставил setVisible(false),
                 // не показываем webview даже после reveal-done.
