@@ -15,6 +15,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.flow.first
 import com.example.otlhelper.desktop.BuildInfo
 import com.example.otlhelper.desktop.core.session.SessionLifecycleManager
 import com.example.otlhelper.desktop.core.update.AppUpdate
@@ -338,10 +339,40 @@ fun App() {
                     )
                 }
             }
-            // 2.5с splash: SheetsWorkspace mount + первый load + CSS-маска.
-            kotlinx.coroutines.delay(2_500)
-            // Если config ещё не пришёл — ждём чуть дольше (до 5с total).
-            kotlinx.coroutines.withTimeoutOrNull(2_500) { loadJob.join() }
+            // §0.10.26 — SPLASH HOLD UNTIL reveal-done (не на жёстком timeout).
+            // Раньше splash off через 2.5+2.5с — на slow network WebView2 reveal
+            // занимал 50+ секунд → юзер видел чёрный квадрат / пустоту между
+            // splash off и actual Sheets render. Решение: ждать revealingFlow=false
+            // через SheetsViewBridge.browser.isRevealing.
+            //
+            // Шаги:
+            //  1. Минимум 1с splash (SheetsWorkspace mount + browser create lag)
+            //  2. Ждать пока config загрузится (loadFromServer)
+            //  3. Ждать пока browser ref bind в SheetsViewBridge (mount complete)
+            //  4. Ждать пока isRevealing → false (CSS-маска инжектнута, reveal-done)
+            //  5. Maximum 90 сек safety timeout (не висим вечно если SAP/Google down)
+            kotlinx.coroutines.delay(1_000)
+            kotlinx.coroutines.withTimeoutOrNull(5_000) { loadJob.join() }
+
+            // Wait for browser ref to appear in bridge, then for reveal-done.
+            kotlinx.coroutines.withTimeoutOrNull(90_000) {
+                // Polling browser ref (mount async может занять секунды на slow PC)
+                var br: com.example.otlhelper.desktop.sheets.SheetsBrowserController? = null
+                while (br == null) {
+                    br = com.example.otlhelper.desktop.sheets.SheetsViewBridge.browser
+                    if (br != null) break
+                    kotlinx.coroutines.delay(100)
+                }
+                // Стартовое isRevealing = false по умолчанию (если ещё не triggered).
+                // Wait until либо стало true (pipeline started) и потом false (done),
+                // либо first emission false с current=spreadsheet (already revealed).
+                // Простой подход: если за 3с не стало true — считаем уже revealed.
+                kotlinx.coroutines.withTimeoutOrNull(3_000) {
+                    br.isRevealing.first { it } // wait until reveal-pipeline started
+                }
+                br.isRevealing.first { !it } // wait until reveal-done
+            }
+
             com.example.otlhelper.desktop.sheets.SheetsViewBridge.externalSplashOverlay.value = false
             com.example.otlhelper.desktop.core.debug.DebugLogger.log(
                 "SHEETS", "splash off, sheetsLoaded=${com.example.otlhelper.desktop.sheets.SheetsRegistry.loaded.value}"

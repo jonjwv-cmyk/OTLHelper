@@ -13,7 +13,7 @@ package com.example.otlhelper.desktop
  */
 object BuildInfo {
 
-    const val VERSION = "0.10.25"
+    const val VERSION = "0.10.26"
 
     val OS: String by lazy {
         val raw = System.getProperty("os.name", "").lowercase()

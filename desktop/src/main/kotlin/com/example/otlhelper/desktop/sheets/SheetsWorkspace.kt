@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.otlhelper.desktop.theme.BgApp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 /**
  * §TZ-DESKTOP 0.4.x round 4 — Sheets-зона приложения.
@@ -193,6 +194,20 @@ fun SheetsWorkspace(
             runCatching { browser?.evaluateJavaScript(SheetsCss.INJECT_JS) }
             kotlinx.coroutines.delay(1_000)
             runCatching { browser?.evaluateJavaScript(SheetsCss.INJECT_JS) }
+            // §0.10.26 — lock overlay должен висеть до reveal-done. Раньше
+            // release срабатывал через фиксированный delay 2.5с — на slow
+            // network reveal pipeline ещё крутилась, юзер видел пустоту/
+            // чёрный квадрат после release. Теперь ждём revealingFlow=false
+            // (max 60с safety timeout).
+            browser?.let { br ->
+                kotlinx.coroutines.withTimeoutOrNull(60_000) {
+                    // Если pipeline уже стартовала — ждём её finish
+                    kotlinx.coroutines.withTimeoutOrNull(3_000) {
+                        br.isRevealing.first { it }
+                    }
+                    br.isRevealing.first { !it }
+                }
+            }
             // Force release locally — даже если WS не сработал. Сервер
             // бродкастит released → у других клиентов release через WS.
             SheetsLockHub.release(action.id)

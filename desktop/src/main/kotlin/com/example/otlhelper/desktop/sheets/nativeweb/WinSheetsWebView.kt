@@ -584,16 +584,20 @@ internal fun WinSheetsWebView(
     LaunchedEffect(Unit) {
         WinSheetsLog.event("mount", "url='${url.take(120)}'")
         startWebView2MessagePump()
-        // Retry up to 20 × 100ms = 2s — на Win Compose окно может ещё не быть
-        // в focused/active state на момент первого frame'а LaunchedEffect.
+        // §0.10.26 BUG FIX — `return@repeat` в Kotlin это **continue** на
+        // следующую итерацию, не break! Раньше log спамил все 20 attempts
+        // даже если уже found на attempt 0. Изменено на простой while-loop
+        // с break-condition.
         var found: ComposeWindow? = null
-        repeat(20) { attempt ->
+        var attempt = 0
+        while (attempt < 20) {
             found = findComposeWindow()
             if (found != null) {
-                WinSheetsLog.log("findComposeWindow OK on attempt $attempt, hwnd=${found?.windowHandle}")
-                return@repeat
+                WinSheetsLog.log("findComposeWindow OK on attempt $attempt, hwnd=${found.windowHandle}")
+                break
             }
             delay(100)
+            attempt++
         }
         if (found == null) {
             WinSheetsLog.log("findComposeWindow FAILED after 20 attempts (2s)")

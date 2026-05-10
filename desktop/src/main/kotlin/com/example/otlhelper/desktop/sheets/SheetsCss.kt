@@ -55,17 +55,38 @@ object SheetsCss {
             display: none !important;
         }
 
-        /* §0.10.25 — hide bottom-right "collapse sheet tabs" arrow.
-           Юзер видит свои tabs через наш TabStrip, нативный navigator
-           Google не нужен. Селекторы: разные версии Sheets dom. */
+        /* §0.10.25-26 — hide bottom-right side-panel toggle arrow + side
+           panels полностью. Юзер видит свои tabs/actions через наш TopBar +
+           TabStrip, нативные boring панели Google (Insights/Explore/Boards/
+           BetterSheet/Side panel) не нужны. */
         .docs-sheet-toggle-tabs-button,
         .docs-sheet-bar-toggle,
         .docs-sheet-bar-zoom-bar,
         .docs-sheet-tabs-overflow-toggle,
+        .docs-explore-button,
+        .docs-explore-icon-button,
+        .docs-companion-button,
+        .docs-companion-fixed-bottom-rail,
+        .docs-companion-app-switcher-bottom-rail-base,
+        .docs-companion-app-switcher-bottom-rail,
+        .docs-side-panel-content,
+        .docs-side-panel,
+        [class*="side-panel-toggle"],
+        [class*="side_panel_toggle"],
+        [aria-label*="боковую панель"],
+        [aria-label*="боковая панель"],
+        [aria-label*="side panel"],
+        [aria-label*="Side panel"],
+        [aria-label*="Сводные"],
+        [aria-label*="Расшифровать"],
+        [aria-label*="Explore"],
         button[aria-label*="Скрыть листы"],
         button[aria-label*="Hide sheet"],
         button[aria-label*="Show sheet"],
-        button[aria-label*="Показать листы"] {
+        button[aria-label*="Показать листы"],
+        button[data-tooltip*="Скрыть"],
+        button[data-tooltip*="Show side panel"],
+        button[data-tooltip*="Hide side panel"] {
             display: none !important;
         }
 
