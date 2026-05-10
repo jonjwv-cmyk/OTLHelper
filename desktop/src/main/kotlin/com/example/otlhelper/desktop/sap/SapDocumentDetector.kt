@@ -77,6 +77,12 @@ object SapDocumentDetector {
     private fun parseJson(json: String): DetectResult {
         return try {
             val obj = JSONObject(json)
+            // §0.11.11 — VBS пишет debug-trace для диагностики
+            // (children_count, conns_count, active_session_ok и т.п.)
+            val debug = obj.optString("debug", "")
+            if (debug.isNotEmpty()) {
+                DebugLogger.log(TAG, "vbs_debug: $debug")
+            }
             val ok = obj.optBoolean("ok", false)
             if (!ok) {
                 val err = obj.optString("error", "unknown_error")

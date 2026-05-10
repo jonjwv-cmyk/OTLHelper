@@ -56,14 +56,14 @@ fun SapLauncherIntegration() {
     // §0.11.10 — Ctrl+Q listener (SAP → OTLHelper inspector)
     DisposableEffect(Unit) {
         if (com.example.otlhelper.desktop.BuildInfo.IS_WINDOWS) {
-            GlobalCtrlQHotkey.start { SapInspectorController.trigger() }
+            GlobalSapHotkey.start { SapInspectorController.trigger() }
             com.example.otlhelper.desktop.core.debug.DebugLogger.log(
                 "SAP_INSPECTOR", "Ctrl+Q hotkey registered"
             )
         }
         onDispose {
             if (com.example.otlhelper.desktop.BuildInfo.IS_WINDOWS) {
-                GlobalCtrlQHotkey.stop()
+                GlobalSapHotkey.stop()
             }
         }
     }

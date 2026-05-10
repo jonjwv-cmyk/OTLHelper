@@ -5,26 +5,19 @@ import com.sun.jna.platform.win32.User32
 import com.sun.jna.platform.win32.WinUser
 
 /**
- * §0.11.10 — глобальный hotkey Ctrl+Q (Win-only).
+ * §0.11.10 → §0.11.11 — глобальный hotkey **Ctrl+Space** (Win-only).
  *
- * Реализован через `User32.RegisterHotKey` (стандартный Windows API,
- * не требует low-level keyboard hook). Зарегистрированный hotkey
- * перехватывается **до** обычного приложения в фокусе — нажатие
- * Ctrl+Q в любом окне (SAP, Excel, браузер) сразу вызывает callback.
+ * Через `User32.RegisterHotKey` (не нужен low-level keyboard hook,
+ * не нужны admin permissions). Срабатывает в любом окне ОС.
  *
- * Caveat: Ctrl+Q в других программах (если они его используют для
- * Quit) будет перехвачен нашим listener'ом. На практике Ctrl+Q
- * популярен только в Firefox / некоторых Linux-инструментах.
- *
- * Запускает отдельный поток с message pump (GetMessage), завершается
- * через PostThreadMessage WM_QUIT при stop().
+ * Раньше был Ctrl+Q (0.11.10) — заменён на Ctrl+Space по запросу юзера.
  */
-object GlobalCtrlQHotkey {
+object GlobalSapHotkey {
 
-    private const val TAG = "CTRL_Q"
+    private const val TAG = "SAP_HOTKEY"
     private const val HOTKEY_ID = 0xC0DE
     private const val MOD_CONTROL = 0x0002
-    private const val VK_Q = 0x51
+    private const val VK_SPACE = 0x20
     private const val WM_HOTKEY = 0x0312
     private const val WM_QUIT = 0x0012
 
@@ -43,22 +36,20 @@ object GlobalCtrlQHotkey {
                     null,
                     HOTKEY_ID,
                     MOD_CONTROL,
-                    VK_Q,
+                    VK_SPACE,
                 )
                 if (!ok) {
-                    DebugLogger.warn(TAG, "RegisterHotKey failed (Ctrl+Q возможно занят)")
+                    DebugLogger.warn(TAG, "RegisterHotKey Ctrl+Space failed (возможно занят)")
                     return@Thread
                 }
-                DebugLogger.log(TAG, "Ctrl+Q registered, entering message pump")
+                DebugLogger.log(TAG, "Ctrl+Space registered, entering message pump")
 
                 val msg = WinUser.MSG()
                 while (User32.INSTANCE.GetMessage(msg, null, 0, 0) > 0) {
                     if (msg.message == WM_HOTKEY && msg.wParam.toInt() == HOTKEY_ID) {
                         val cb = listener
                         if (cb != null) {
-                            // Run callback off-hotkey-thread чтобы быстрее
-                            // вернуться к message pump
-                            Thread(cb, "OTLD-CtrlQ-Trigger").apply {
+                            Thread(cb, "OTLD-SAP-Trigger").apply {
                                 isDaemon = true
                                 start()
                             }
@@ -70,7 +61,7 @@ object GlobalCtrlQHotkey {
             } catch (e: Throwable) {
                 DebugLogger.error(TAG, "hotkey thread crashed", e)
             }
-        }, "OTLD-CtrlQ-Pump")
+        }, "OTLD-SAP-HotkeyPump")
         thread.isDaemon = true
         thread.start()
         hookThread = thread
@@ -79,7 +70,6 @@ object GlobalCtrlQHotkey {
     fun stop() {
         val tid = hookThreadId
         if (tid != 0) {
-            // Отправляем WM_QUIT в наш thread чтобы GetMessage вернул 0
             User32.INSTANCE.PostThreadMessage(
                 tid,
                 WM_QUIT,
@@ -92,7 +82,6 @@ object GlobalCtrlQHotkey {
         listener = null
     }
 
-    /** Минимальный JNA для GetCurrentThreadId. */
     private interface Kernel32Ext : com.sun.jna.Library {
         fun GetCurrentThreadId(): Int
 
