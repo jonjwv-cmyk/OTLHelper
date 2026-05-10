@@ -77,6 +77,15 @@ fun App() {
                 "user.home=${System.getProperty("user.home")}"
         )
     }
+
+    // §0.11.9 — SAP triple Ctrl+C launcher. Глобальный hotkey listener
+    // через clipboard sequence polling. При triple-copy (3 копирования
+    // за 1.5 сек) читает буфер, валидирует формат (10 цифр 42/43/44 →
+    // ME23N заказ, 7-8 цифр 5/6 → VL02N поставка), запускает bundled
+    // VBS через cscript с env vars. Win-only. Стартует один раз и
+    // работает всё время пока приложение запущено. Error UI — heavyweight
+    // DialogWindow (поверх Sheets webview зоны).
+    com.example.otlhelper.desktop.sap.SapLauncherIntegration()
     var state by remember {
         // Sync SessionStore.load() — file IO ~5-50ms, приемлемо на cold
         // start чтобы избежать LoginScreen flash. LaunchedEffect ниже
