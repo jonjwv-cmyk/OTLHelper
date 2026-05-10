@@ -42,8 +42,8 @@ object GlobalCtrlQHotkey {
                 val ok = User32.INSTANCE.RegisterHotKey(
                     null,
                     HOTKEY_ID,
-                    com.sun.jna.platform.win32.WinDef.UINT(MOD_CONTROL.toLong()),
-                    com.sun.jna.platform.win32.WinDef.UINT(VK_Q.toLong()),
+                    MOD_CONTROL,
+                    VK_Q,
                 )
                 if (!ok) {
                     DebugLogger.warn(TAG, "RegisterHotKey failed (Ctrl+Q возможно занят)")
