@@ -579,7 +579,17 @@ internal fun WinSheetsWebView(
     // §TZ-DESKTOP-UX-2026-05 0.8.59 — signal-based reveal status для
     // блокировки tab/file клик в SheetsWorkspace. true пока reveal pipeline
     // активна (cat splash виден, юзер не должен кликать другие tabs/files).
-    val revealingFlow = remember { kotlinx.coroutines.flow.MutableStateFlow(false) }
+    //
+    // §0.11.4 — INITIAL = true. Раньше было false → первый mount загружал URL
+    // через state.loadUrl напрямую (не через controller.loadUrl), поэтому
+    // onRevealReset callback не вызывался → revealingFlow оставался false →
+    // App.kt LaunchedEffect (state, login) ждал first { it } 3 сек timeout
+    // → first { !it } мгновенно → splash off через ~5 сек ДО reveal-done.
+    // Юзер видел Google login форму или белый webview за "ушедшим" котиком.
+    // Initial=true означает: pipeline активна по дефолту, выключаем когда
+    // reveal-done реально пришёл (line 895/725) — единственный путь снять
+    // блокировку.
+    val revealingFlow = remember { kotlinx.coroutines.flow.MutableStateFlow(true) }
 
     LaunchedEffect(Unit) {
         WinSheetsLog.event("mount", "url='${url.take(120)}'")

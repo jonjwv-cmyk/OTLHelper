@@ -115,6 +115,60 @@ object SheetsCss {
             display: none !important;
         }
 
+        /* §0.11.4 — bottom bar остатки которые показываются после .docs-grid-bar
+           hide. Sheets имеет ДВА uplnoе bottom bar'а: один с tabs/buttons (выше)
+           и status bar с "Показано строк" (ниже). Скрываем кнопки в status-bar
+           КРОМЕ самого текста счётчика. И универсально через [class*="waffle-"].
+
+           Юзер 0.11.3 → 0.11.4: «эти кнопки не скрыты — бургер слева и стрелка
+           справа в самом низу». Селекторы по обоим контейнерам разом.
+         */
+        .waffle-bottom-bar button,
+        .waffle-bottom-bar [role="button"],
+        .waffle-grid-bar button,
+        .waffle-grid-bar [role="button"],
+        [class*="waffle-bottom"] button,
+        [class*="waffle-bottom"] [role="button"],
+        [class*="waffle-grid-bar"] button,
+        [class*="waffle-grid-bar"] [role="button"],
+        [class*="docs-grid-bar"] button,
+        [class*="docs-grid-bar"] [role="button"],
+        [class*="docs-bottom-bar"] button,
+        [class*="docs-bottom-bar"] [role="button"],
+        /* Конкретные id/класс которые видели в продакшне Sheets но не покрыты выше */
+        #docs-grid-bar-bottom,
+        #waffle-grid-bar-bottom-pane-wrapper > div:first-child,
+        #waffle-grid-bar-bottom-pane-wrapper button,
+        #waffle-grid-bar-bottom-pane-wrapper [role="button"],
+        .docs-grid-bar-bottom-pane-wrapper button,
+        .docs-grid-bar-bottom-pane-wrapper [role="button"],
+        /* New aria-label варианты которые Google добавляет в 2026 */
+        [aria-label*="ст листов"],
+        [aria-label*="ст листо"],
+        [aria-label*="бок панель"],
+        [aria-label*="развернуть бок"],
+        [aria-label*="свернуть бок"],
+        [aria-label*="Развернуть бок"],
+        [aria-label*="Свернуть бок"],
+        [aria-label*="Развернуть пан"],
+        [aria-label*="Свернуть пан"],
+        [aria-label*="Скрыть пан"],
+        [aria-label*="Показать пан"],
+        [aria-label*="ide pan"],
+        [aria-label*="how pan"],
+        [aria-label*="ide tab"],
+        [aria-label*="how tab"],
+        /* Стрелки collapse через title attribute (для Edge fallback) */
+        button[title*="бок"],
+        button[title*="лист"],
+        button[title*="pan"],
+        button[title*="Sheet"] {
+            display: none !important;
+            visibility: hidden !important;
+            width: 0 !important;
+            height: 0 !important;
+        }
+
         /* ──────────────────────────────────────────────────────
          * 2) Большая иконка Google Sheets в верхнем-левом углу
          *    (ведёт на Drive — отдельная страница со списком файлов
@@ -616,12 +670,88 @@ object SheetsCss {
                         console.error('[OTLD] compact chrome failed', e);
                     }
                 }
+                // §0.11.4 — positional hide остатков bottom bar.
+                // Юзер: «бургер ☰ слева и стрелка < справа в самом низу — не
+                // скрыты». Sheets DOM иногда вешает эти кнопки в неимеющий
+                // явных aria-label контейнер. Сканируем по позиции:
+                // любая icon-only кнопка в нижних 60px viewport'а — скрываем,
+                // кроме элементов внутри status-bar (там «Показано строк: N
+                // из M» — мы хотим оставить).
+                function hideBottomBarRemnants() {
+                    try {
+                        var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+                        if (vh < 100) return;
+                        var nodes = document.querySelectorAll(
+                            'button, [role="button"], [role="menuitem"]'
+                        );
+                        nodes.forEach(function(btn) {
+                            try {
+                                var rect = btn.getBoundingClientRect();
+                                if (rect.width <= 0 || rect.height <= 0) return;
+                                var bottomDist = vh - rect.bottom;
+                                if (bottomDist < -5 || bottomDist > 60) return;
+                                // Не трогаем элементы внутри status bar
+                                // (там «Показано строк», фильтры, селект суммы
+                                // — нам нужны).
+                                var inStatus = btn.closest(
+                                    '[class*="status-bar"], [class*="status_bar"], ' +
+                                    '[class*="filter-bar"], [class*="filter_bar"], ' +
+                                    '[id*="status-bar"], [id*="status_bar"], ' +
+                                    '[aria-label*="Показано"], [aria-label*="row"], ' +
+                                    '[aria-label*="строк"], [aria-label*="ячее"], ' +
+                                    '[aria-label*="Sum"], [aria-label*="Сумм"]'
+                                );
+                                if (inStatus) return;
+                                // Также не трогаем большие кнопки (явно с
+                                // текстом, например «Поделиться» — что вряд ли
+                                // окажется в нижней части, но safety net).
+                                var text = (btn.textContent || '').trim();
+                                if (text.length > 8) return;
+                                btn.style.setProperty('display', 'none', 'important');
+                                btn.style.setProperty('visibility', 'hidden', 'important');
+                                btn.style.setProperty('width', '0', 'important');
+                                btn.style.setProperty('height', '0', 'important');
+                            } catch (_) {}
+                        });
+                    } catch (e) {
+                        console.error('[OTLD] hideBottomBarRemnants failed', e);
+                    }
+                }
+                // §0.11.4 — MutationObserver. Sheets добавляет элементы
+                // динамически (реакция на window resize, popups, lazy load).
+                // Без observer'а наши hide'ы применяются один раз и новые
+                // элементы остаются видимыми. Re-trigger compactChrome +
+                // hideBottomBarRemnants на каждое изменение DOM (debounced).
+                if (!window.__otldMutationObserver) {
+                    try {
+                        var debounceTimer = null;
+                        var observer = new MutationObserver(function() {
+                            if (debounceTimer) clearTimeout(debounceTimer);
+                            debounceTimer = setTimeout(function() {
+                                try {
+                                    compactChrome();
+                                    hideBottomBarRemnants();
+                                } catch (_) {}
+                            }, 250);
+                        });
+                        observer.observe(document.body || document.documentElement, {
+                            childList: true,
+                            subtree: true,
+                        });
+                        window.__otldMutationObserver = observer;
+                        console.log('[OTLD] MutationObserver installed');
+                    } catch (e) {
+                        console.error('[OTLD] MutationObserver install failed', e);
+                    }
+                }
                 function revealWhenReady() {
                     try {
                         compactChrome();
+                        hideBottomBarRemnants();
                         ${HIDE_MENUS_JS}
                         if (isReady()) {
                             compactChrome();
+                            hideBottomBarRemnants();
                             if (document.body) document.body.style.visibility = 'visible';
                             if (document.documentElement) document.documentElement.style.visibility = 'visible';
                             window.__otldSheetsReady = true;
@@ -636,9 +766,11 @@ object SheetsCss {
                 requestAnimationFrame(function() {
                     requestAnimationFrame(revealWhenReady);
                 });
-                setTimeout(compactChrome, 500);
-                setTimeout(compactChrome, 1200);
-                setTimeout(compactChrome, 2400);
+                setTimeout(function() { compactChrome(); hideBottomBarRemnants(); }, 500);
+                setTimeout(function() { compactChrome(); hideBottomBarRemnants(); }, 1200);
+                setTimeout(function() { compactChrome(); hideBottomBarRemnants(); }, 2400);
+                setTimeout(function() { compactChrome(); hideBottomBarRemnants(); }, 5000);
+                setTimeout(function() { compactChrome(); hideBottomBarRemnants(); }, 10000);
             } catch (e) {
                 console.error('[OTLD] mask inject failed', e);
                 if (document.body) document.body.style.visibility = 'visible';

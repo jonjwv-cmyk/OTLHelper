@@ -153,7 +153,10 @@ private fun UpdateConfirmDialog(onYes: () -> Unit, onNo: () -> Unit) {
     // §0.10.26 — увеличен размер 220→320. Native title bar Win + 24dp
     // padding + text 3 lines + spacers + buttons 44dp не помещались
     // в 220dp → юзер видел кнопки "Нет"/"Да" обрезанными снизу.
-    val state = rememberDialogState(size = DpSize(440.dp, 340.dp))
+    // §0.11.4 — 340→260. Юзер: «много пустоты под кнопками». Точный
+    // расчёт: padding top 24 + title 28 + sp 8 + text 4 lines 76 +
+    // sp 20 + buttons 44 + padding bottom 24 + title bar 32 ≈ 256.
+    val state = rememberDialogState(size = DpSize(440.dp, 260.dp))
     DialogWindow(
         onCloseRequest = onNo,
         state = state,

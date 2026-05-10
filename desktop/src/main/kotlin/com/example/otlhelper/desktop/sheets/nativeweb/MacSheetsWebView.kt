@@ -229,8 +229,9 @@ private class MacSheetsSlot(
     /** §TZ-DESKTOP-UX-2026-05 0.8.59 — signal-based reveal status для
      *  блокировки tab/file клик в SheetsWorkspace. true пока reveal pipeline
      *  активна (cat splash виден). Выставляется в loadUrl/beforeNavigation
-     *  и сбрасывается в false после revealed=true в reveal pipeline. */
-    val revealingFlow = kotlinx.coroutines.flow.MutableStateFlow(false)
+     *  и сбрасывается в false после revealed=true в reveal pipeline.
+     *  §0.11.4 — INITIAL = true (см. WinSheetsWebView §0.11.4 коммент). */
+    val revealingFlow = kotlinx.coroutines.flow.MutableStateFlow(true)
 
     val controller = MacSheetsBrowserController(this) {
         revealed = false

@@ -114,9 +114,12 @@ fun ExtensionPromptDialog(
     // native title bar (~30dp) + DpSize 220 не хватало места для
     // bottom button "Завершить сессию". Юзер видел дефис "-"
     // вместо обрезанной нижней кнопки.
+    // §0.11.4 — 320→230. Точный расчёт: padding 24 + title 22 +
+    // sp 6 + text 18 + sp 18 + button 40 + sp 8 + textbutton 30 +
+    // padding 24 + title bar 32 ≈ 222. С запасом 230.
     val state = rememberDialogState(
         position = WindowPosition(Alignment.Center),
-        size = DpSize(460.dp, 320.dp),
+        size = DpSize(460.dp, 230.dp),
     )
     DialogWindow(
         onCloseRequest = onDismiss,

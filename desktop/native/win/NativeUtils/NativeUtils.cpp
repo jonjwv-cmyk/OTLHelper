@@ -383,6 +383,23 @@ extern "C" __declspec(dllexport) int64_t createWebViewWithSettings(BOOL javaScri
         }
     }
 
+    // §0.11.4 — DefaultBackgroundColor = BgApp (#0E0E10). По дефолту WebView2
+    // controller рисует белый фон до того как страница загрузилась/применила
+    // CSS. Юзер видел "чёрный квадрат с другим оттенком за котиком" — это был
+    // переход между BgApp Compose surface и default WebView2 white. С этим
+    // флагом webview frame заливается тем же цветом что Compose Box → юзер
+    // не видит швов между splash overlay и фоном webview.
+    {
+        ComPtr<ICoreWebView2Controller2> controller2;
+        if (SUCCEEDED(resultController.As(&controller2)) && controller2) {
+            COREWEBVIEW2_COLOR bg = { 0xFF, 0x0E, 0x0E, 0x10 };  // A,R,G,B
+            HRESULT hrBg = controller2->put_DefaultBackgroundColor(bg);
+            dlog("put_DefaultBackgroundColor=0x%08x", (unsigned)hrBg);
+        } else {
+            dlog("ICoreWebView2Controller2 not available — DefaultBackgroundColor skipped");
+        }
+    }
+
     // §TZ-DESKTOP-NATIVE-2026-05 fix #1 — global NavigationStarting/Completed
     // handlers для tracking isLoading. Также forward URL в Java navCallback
     // если он зарегистрирован через setNavigationCallback. Раньше подписывались

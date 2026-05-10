@@ -93,7 +93,11 @@ fun SoftUpdateDialog(
 
     // §0.10.26 — высота 280→360. На Win native title bar + текст
     // (3 строки описания) + progress bar + button не помещались.
-    val dialogState = rememberDialogState(size = DpSize(460.dp, 360.dp))
+    // §0.11.4 — 360→290. Юзер: «огромное пустое пространство под кнопками».
+    // Точный размер по контенту: header ~50 + sp 18 + text 3-4 lines ~76 +
+    // sp 18 + button 50 + sp 4 + textbutton 36 + padding 48 + title 32 ≈ 332.
+    // На IDLE (text + 1 кнопка + textbutton) — ~290 хватает с запасом 10dp.
+    val dialogState = rememberDialogState(size = DpSize(460.dp, 290.dp))
 
     DialogWindow(
         onCloseRequest = {
