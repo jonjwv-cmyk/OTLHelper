@@ -94,6 +94,23 @@ object CorporateProxy {
 
     private fun doDetect(targetUrl: String): ProxyConfig? {
         SspiLogger.log("CorporateProxy.detect: probing $targetUrl, isWindows=$isWindows")
+
+        // §0.11.13.3 — env override для force direct mode (debug / home tests).
+        // Если OTLD_FORCE_DIRECT=true — пропускаем detection, всегда direct.
+        val forceDirect = System.getenv("OTLD_FORCE_DIRECT")?.lowercase() in setOf("1","true","yes")
+        if (forceDirect) {
+            SspiLogger.log("CorporateProxy.detect: OTLD_FORCE_DIRECT=true → direct mode")
+            // Дублируем в общий debug log чтобы юзер видел в Desktop\otl-debug.log
+            runCatching {
+                com.example.otlhelper.desktop.core.debug.DebugLogger.event(
+                    "PROXY", "phase" to "force_direct_env", "result" to "direct"
+                )
+            }
+            return null
+        }
+
+        var detected: ProxyConfig? = null
+
         // 1. JVM ProxySelector (с useSystemProxies=true).
         runCatching {
             val uri = URI.create(targetUrl)
@@ -104,13 +121,14 @@ object CorporateProxy {
                     val addr = p.address() as? InetSocketAddress ?: continue
                     val hp = "${addr.hostString}:${addr.port}"
                     SspiLogger.log("CorporateProxy.detect: ✓ JVM ProxySelector found HTTP proxy $hp")
-                    return ProxyConfig(host = addr.hostString, port = addr.port, source = "ProxySelector ($hp)")
+                    detected = ProxyConfig(host = addr.hostString, port = addr.port, source = "ProxySelector ($hp)")
+                    break
                 }
             }
         }.onFailure { SspiLogger.log("CorporateProxy.detect: JVM ProxySelector exception: ${it.message}") }
 
         // 2. PowerShell fallback (only on Windows).
-        if (isWindows) {
+        if (detected == null && isWindows) {
             runCatching {
                 SspiLogger.log("CorporateProxy.detect: trying PowerShell fallback")
                 val ps = ProcessBuilder(
@@ -124,16 +142,82 @@ object CorporateProxy {
                 SspiLogger.log("CorporateProxy.detect: PowerShell stdout='$out' exit=${ps.exitValue()}")
                 if (out.isNotEmpty() && out.startsWith("http")) {
                     val uri = URI.create(out)
-                    val host = uri.host ?: return@runCatching null
-                    val port = if (uri.port > 0) uri.port else 3128
-                    SspiLogger.log("CorporateProxy.detect: ✓ PowerShell found proxy $host:$port")
-                    return ProxyConfig(host = host, port = port, source = "PowerShell ($out)")
+                    val host = uri.host
+                    if (host != null) {
+                        val port = if (uri.port > 0) uri.port else 3128
+                        SspiLogger.log("CorporateProxy.detect: ✓ PowerShell found proxy $host:$port")
+                        detected = ProxyConfig(host = host, port = port, source = "PowerShell ($out)")
+                    }
                 }
-                null
             }.onFailure { SspiLogger.log("CorporateProxy.detect: PowerShell exception: ${it.message}") }
         }
-        SspiLogger.log("CorporateProxy.detect: ✗ no proxy found, falling back to direct VPS")
-        return null
+
+        if (detected == null) {
+            SspiLogger.log("CorporateProxy.detect: ✗ no proxy found, falling back to direct VPS")
+            runCatching {
+                com.example.otlhelper.desktop.core.debug.DebugLogger.event(
+                    "PROXY", "phase" to "no_proxy_detected", "result" to "direct"
+                )
+            }
+            return null
+        }
+
+        // §0.11.13.3 — TCP probe для distinguishing home vs office.
+        // Корп ноут на Win может иметь stale Windows IE / WPAD настройки от
+        // офисного GPO даже когда юзер дома. ProxySelector тогда возвращает
+        // прокси, EXE пытается через него, прокси недоступен → SocketTimeout
+        // → юзер сидит без сети.
+        //
+        // Probe: TCP connect к proxy host:port с timeout 2 сек.
+        //   • Доступен (офис, LAN, мгновенно) → keep proxy mode
+        //   • Недоступен (дома, прокси за корп firewall) → fallback на direct
+        //
+        // Дома detect() возвращает null → applyProxyOrDirect() ставит DNS
+        // override на VPS IP + cert pinning → работает как Mac home mode.
+        val pc = detected!!
+        val probeOk = probeProxyReachable(pc.host, pc.port, timeoutMs = 2000)
+        runCatching {
+            com.example.otlhelper.desktop.core.debug.DebugLogger.event(
+                "PROXY",
+                "phase" to "tcp_probe",
+                "host" to pc.host,
+                "port" to pc.port,
+                "source" to pc.source,
+                "reachable" to probeOk,
+                "result" to if (probeOk) "proxy_mode" else "direct_fallback",
+            )
+        }
+        if (!probeOk) {
+            SspiLogger.log(
+                "CorporateProxy.detect: proxy ${pc.host}:${pc.port} detected but UNREACHABLE → fallback direct"
+            )
+            return null
+        }
+        SspiLogger.log(
+            "CorporateProxy.detect: ✓ proxy ${pc.host}:${pc.port} probe OK, using proxy mode"
+        )
+        return pc
+    }
+
+    /**
+     * §0.11.13.3 — TCP connect probe с timeout. Не делает HTTP request,
+     * только проверяет что host:port открывает TCP. Безопасно — если прокси
+     * требует auth или возвращает 407, мы это **не** обнаружим (главное
+     * что socket открылся).
+     *
+     * Возврат:
+     *  - true  → TCP connect успешен в пределах timeoutMs (прокси LIKELY доступен)
+     *  - false → connection refused / timeout / DNS fail (прокси недоступен)
+     */
+    private fun probeProxyReachable(host: String, port: Int, timeoutMs: Int): Boolean {
+        return runCatching {
+            java.net.Socket().use { sock ->
+                sock.connect(java.net.InetSocketAddress(host, port), timeoutMs)
+                sock.isConnected
+            }
+        }.onFailure {
+            SspiLogger.log("probeProxyReachable($host:$port) failed: ${it.javaClass.simpleName}: ${it.message}")
+        }.getOrDefault(false)
     }
 
     /**
