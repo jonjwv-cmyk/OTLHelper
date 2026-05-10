@@ -28,38 +28,61 @@ object KasperskyMonitor {
 
     /** Маркеры процессов AV — substring match (case-insensitive). */
     private val AV_PROCESS_MARKERS = listOf(
-        // Kaspersky
-        "avp.exe", "avpui.exe", "kavfs.exe", "kxetray.exe",
-        "klsvc.exe", "kavtray.exe", "klnagent.exe", "klserver.exe",
-        // ESET
-        "ekrn.exe", "egui.exe",
+        // Kaspersky — extended (0.11.14.1)
+        "avp.exe", "avpui.exe", "avpsus.exe", "avpcom.exe",
+        "kavfs.exe", "kxetray.exe", "klsvc.exe", "kavtray.exe",
+        "klnagent.exe", "klserver.exe", "klwtblfs.exe", "kavfsmui.exe",
+        "ksde.exe", "ksdeui.exe",  // Kaspersky Security for Business
+        // ESET — extended
+        "ekrn.exe", "egui.exe", "eguiproxy.exe", "ecmd.exe",
         // Avast / AVG
-        "avastsvc.exe", "avastui.exe", "avgsvc.exe",
+        "avastsvc.exe", "avastui.exe", "avgsvc.exe", "avgui.exe",
+        "aswengsrv.exe", "aswidsagent.exe",
         // Norton / Symantec
-        "ns.exe", "nortonsecurity.exe", "ccsvchst.exe",
+        "ns.exe", "nortonsecurity.exe", "ccsvchst.exe", "nortonbackup.exe",
         // McAfee
-        "mfevtps.exe", "mcshield.exe", "mcafeesecuritysvc.exe",
+        "mfevtps.exe", "mcshield.exe", "mcafeesecuritysvc.exe", "mfemms.exe",
         // Bitdefender
-        "bdservicehost.exe", "bdagent.exe",
+        "bdservicehost.exe", "bdagent.exe", "bdwtxag.exe", "vsserv.exe",
         // Microsoft Defender
-        "msmpeng.exe", "nissrv.exe",
-        // Other
-        "dr.web", "drwagntd.exe",
+        "msmpeng.exe", "nissrv.exe", "securityhealthservice.exe",
+        "mssense.exe", "mpdefendercoreservice.exe",
+        // Sophos
+        "sophosagent.exe", "savservice.exe", "alsvc.exe",
+        // Trend Micro
+        "tmcomm.exe", "tmccsf.exe", "tmpfw.exe",
+        // F-Secure
+        "fshoster32.exe", "fshoster64.exe",
+        // Dr.Web
+        "dr.web", "drwagntd.exe", "spideragent.exe",
+        // Comodo
+        "cmdagent.exe", "cis.exe",
     )
 
     /** Маркеры injected DLL. */
     private val AV_DLL_MARKERS = listOf(
-        // Kaspersky
+        // Kaspersky — extended (0.11.14.1)
         "klhk", "klflt", "klsft", "mzva", "klogon", "klsihk",
-        "klwtbbho", "klwfp", "klsnsr",
+        "klwtbbho", "klwfp", "klsnsr", "klids", "klick",
+        "klolik", "klsiff", "klogon64",
         // Defender
-        "mpclient", "mpoav", "msmpeng",
+        "mpclient", "mpoav", "msmpeng", "mssense", "defender",
         // ESET
-        "eepw", "eelam",
+        "eepw", "eelam", "eclamadm", "egnt",
         // Avast
-        "ashbase", "avastfileshield",
+        "ashbase", "avastfileshield", "ashscript", "aswarpot",
+        // Norton
+        "navshext", "symantec", "norton",
+        // McAfee
+        "mfencbdc", "mfehidk", "naixfltr", "mcaff",
+        // Bitdefender
+        "bdsec", "trufos", "bdfilespy",
+        // Sophos
+        "savhook", "sophos",
+        // Trend Micro
+        "tmevtmgr", "tmpreflt",
         // Generic
-        "antivirus", "endpoint",
+        "antivirus", "endpoint", "rasapi32", "edrkmde",
     )
 
     @Volatile private var monitorThread: Thread? = null
@@ -78,15 +101,24 @@ object KasperskyMonitor {
                 scanProcesses(initial = true)
                 scanLoadedDlls()
                 logEnvironment()
+                logExecutableLocation()
+                latencyProbe(initial = true)
                 DebugLogger.log(TAG, "===== INITIAL AV SCAN END =====")
 
-                // Periodic re-scan
+                // Periodic re-scan. Каждые 60s: process list. Каждые 5 мин (5й
+                // цикл): полный latency probe — измеряем cmd spawn / file I/O /
+                // network connect, чтобы видеть "тормозит ли AV". §0.11.14.1
+                var cycle = 0
                 while (!Thread.currentThread().isInterrupted) {
                     Thread.sleep(PERIODIC_INTERVAL_MS)
+                    cycle++
                     scanProcesses(initial = false)
+                    if (cycle % 5 == 0) {
+                        latencyProbe(initial = false)
+                    }
                 }
             } catch (_: InterruptedException) {
-                // graceful
+                DebugLogger.log(TAG, "monitor thread interrupted (shutdown)")
             } catch (e: Throwable) {
                 DebugLogger.error(TAG, "monitor thread crashed", e)
             }
@@ -94,6 +126,17 @@ object KasperskyMonitor {
         thread.isDaemon = true
         thread.start()
         monitorThread = thread
+
+        // §0.11.14.1 — shutdown hook фиксирует "process terminating"
+        // событие в лог. Полезно отделить graceful exit от AV-kill (где
+        // лог обрывается без shutdown event).
+        runCatching {
+            Runtime.getRuntime().addShutdownHook(Thread({
+                runCatching {
+                    DebugLogger.log(TAG, "shutdown hook fired (process terminating gracefully)")
+                }
+            }, "OTLD-Shutdown-AV"))
+        }
     }
 
     fun stop() {
@@ -219,6 +262,132 @@ object KasperskyMonitor {
             }
         } catch (e: Throwable) {
             DebugLogger.warn(TAG, "tmp_probe failed: ${e.message}")
+        }
+    }
+
+    /**
+     * §0.11.14.1 — Где живёт наш EXE и user dir. Полезно понять:
+     *  • Program Files / Program Data — AV whitelist шанс выше
+     *  • User\Downloads / Desktop / Temp — каждый запуск full scan
+     *  • Junction / symlink — может cause permission issues
+     */
+    private fun logExecutableLocation() {
+        runCatching {
+            val ourPath = ProcessHandle.current().info().command().orElse(null)
+            DebugLogger.log(TAG, "process_cmd=${ourPath ?: "?"}")
+
+            val cwd = System.getProperty("user.dir") ?: "?"
+            DebugLogger.log(TAG, "cwd=$cwd")
+
+            // Detect install location class
+            val pathLower = (ourPath ?: "").lowercase()
+            val locationClass = when {
+                pathLower.contains("\\program files\\") -> "program_files"
+                pathLower.contains("\\program files (x86)\\") -> "program_files_x86"
+                pathLower.contains("\\programdata\\") -> "program_data"
+                pathLower.contains("\\appdata\\local\\") -> "appdata_local"
+                pathLower.contains("\\appdata\\roaming\\") -> "appdata_roaming"
+                pathLower.contains("\\users\\") && pathLower.contains("\\desktop\\") -> "desktop"
+                pathLower.contains("\\users\\") && pathLower.contains("\\downloads\\") -> "downloads"
+                pathLower.contains("\\users\\") -> "user_home"
+                pathLower.contains("\\temp\\") -> "temp"
+                else -> "other"
+            }
+            DebugLogger.log(TAG, "install_location_class=$locationClass")
+        }.onFailure {
+            DebugLogger.warn(TAG, "logExecutableLocation failed: ${it.message}")
+        }
+    }
+
+    /**
+     * §0.11.14.1 — periodic latency probe для детектирования AV scanning.
+     *
+     * Baseline measurements:
+     *  • process_spawn — `cmd /c echo` round-trip (normal ~30-80ms, AV ~200-2000ms)
+     *  • file_io — write+read+delete 1KB tmp file (normal <50ms, AV >300ms)
+     *  • dll_load — Native.loadLibrary("kernel32") (proxies via JNA cache,
+     *    но первый call meaningfully slower if AV hooks LoadLibrary)
+     *
+     * Каждые 5 мин (по периодике). Spike → AV inspecting.
+     */
+    private fun latencyProbe(initial: Boolean) {
+        val prefix = if (initial) "initial" else "periodic"
+
+        // 1) Process spawn — самый важный probe (cscript для VBS тоже spawn)
+        runCatching {
+            val t0 = System.currentTimeMillis()
+            val p = ProcessBuilder("cmd", "/c", "echo", "ok")
+                .redirectErrorStream(true)
+                .start()
+            val ok = p.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            val ms = System.currentTimeMillis() - t0
+            val exit = if (ok) p.exitValue() else -1
+            DebugLogger.event(TAG, "latency_$prefix" to "process_spawn",
+                "ms" to ms, "exit" to exit)
+            if (ms > 1000) {
+                DebugLogger.warn(TAG, "process_spawn SLOW: ${ms}ms (AV hooking CreateProcess?)")
+            }
+            if (!ok) p.destroyForcibly()
+        }.onFailure {
+            DebugLogger.warn(TAG, "process_spawn probe failed: ${it.message}")
+        }
+
+        // 2) File I/O — 4KB write + read + delete (>1KB чтобы AV scanned)
+        runCatching {
+            val probe = File(
+                System.getProperty("java.io.tmpdir"),
+                "otl_lat_${System.currentTimeMillis()}.tmp",
+            )
+            val data = ByteArray(4096) { (it and 0x7F).toByte() }
+            val t0 = System.currentTimeMillis()
+            probe.writeBytes(data)
+            val writeMs = System.currentTimeMillis() - t0
+            val t1 = System.currentTimeMillis()
+            probe.readBytes()
+            val readMs = System.currentTimeMillis() - t1
+            val t2 = System.currentTimeMillis()
+            probe.delete()
+            val deleteMs = System.currentTimeMillis() - t2
+            DebugLogger.event(TAG, "latency_$prefix" to "file_io",
+                "write_ms" to writeMs, "read_ms" to readMs, "delete_ms" to deleteMs)
+            if (writeMs > 300 || readMs > 300 || deleteMs > 300) {
+                DebugLogger.warn(TAG, "file I/O slow: w=${writeMs} r=${readMs} d=${deleteMs} (AV scanning tmp?)")
+            }
+        }.onFailure {
+            DebugLogger.warn(TAG, "file_io probe failed: ${it.message}")
+        }
+
+        // 3) Network probe — localhost socket connect (baseline) + DNS resolve
+        runCatching {
+            val t0 = System.currentTimeMillis()
+            val sock = java.net.Socket()
+            try {
+                sock.connect(java.net.InetSocketAddress("127.0.0.1", 1), 500)
+                sock.close()
+            } catch (_: Throwable) {
+                // Port 1 закрыт — ожидаемо, но connect attempt время важно
+            }
+            val connectMs = System.currentTimeMillis() - t0
+
+            val t1 = System.currentTimeMillis()
+            val resolved = runCatching {
+                java.net.InetAddress.getByName("api.otlhelper.com")
+            }.getOrNull()
+            val dnsMs = System.currentTimeMillis() - t1
+
+            DebugLogger.event(TAG, "latency_$prefix" to "network",
+                "tcp_loopback_ms" to connectMs,
+                "dns_resolve_ms" to dnsMs,
+                "dns_ok" to (resolved != null),
+                "dns_resolved" to (resolved?.hostAddress ?: "null"))
+            if (connectMs > 500) {
+                DebugLogger.warn(TAG, "loopback socket slow: ${connectMs}ms (firewall/AV?)")
+            }
+            if (dnsMs > 1500) {
+                DebugLogger.warn(TAG, "DNS slow: ${dnsMs}ms")
+            }
+        }.onFailure {
+            DebugLogger.warn(TAG, "network probe failed: ${it.message}")
         }
     }
 }

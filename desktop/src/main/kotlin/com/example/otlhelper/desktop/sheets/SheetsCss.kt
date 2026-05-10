@@ -839,6 +839,38 @@ object SheetsCss {
                 // documentReadyState, attempts. Помогает понять *почему* юзер
                 // видит "белый экран" — была ли страница загружена, было ли
                 // body show'нуто, был ли grid present.
+                // §0.11.14.1 — global JS error handler. Считаем ошибки и
+                // первые 3 сообщения шлём в native log. Помогает понять —
+                // Sheets internal сломалось / наш CSS повлиял / cross-origin.
+                if (!window.__otldErrorsHooked) {
+                    window.__otldErrorsHooked = true;
+                    window.__otldErrCount = 0;
+                    window.__otldRejectCount = 0;
+                    window.addEventListener('error', function(ev) {
+                        try {
+                            window.__otldErrCount = (window.__otldErrCount || 0) + 1;
+                            if (window.__otldErrCount <= 3 && window.__otldLog) {
+                                var src = (ev.filename || '').slice(-60);
+                                var msg = (ev.message || '').slice(0, 120);
+                                window.__otldLog('ERR', 'n=' + window.__otldErrCount +
+                                    ' src=' + src + ':' + (ev.lineno || 0) +
+                                    ' msg=' + msg);
+                            }
+                        } catch (_) {}
+                    }, true);
+                    window.addEventListener('unhandledrejection', function(ev) {
+                        try {
+                            window.__otldRejectCount = (window.__otldRejectCount || 0) + 1;
+                            if (window.__otldRejectCount <= 3 && window.__otldLog) {
+                                var r = ev.reason;
+                                var msg = (r && r.message ? r.message : String(r || '')).slice(0, 120);
+                                window.__otldLog('ERR', 'reject n=' + window.__otldRejectCount +
+                                    ' msg=' + msg);
+                            }
+                        } catch (_) {}
+                    }, true);
+                }
+
                 if (!window.__otldProbeStarted) {
                     window.__otldProbeStarted = true;
                     var probeStart = Date.now();
@@ -855,13 +887,46 @@ object SheetsCss {
                             var ready = window.__otldSheetsReady;
                             var rs = document.readyState;
                             var elapsed = Date.now() - probeStart;
+
+                            // §0.11.14.1 — расширенные метрики
+                            var canvasEl = document.querySelector('canvas');
+                            var canvasSize = '?';
+                            if (canvasEl) {
+                                canvasSize = (canvasEl.width || 0) + 'x' + (canvasEl.height || 0);
+                            }
+                            var vp = (window.innerWidth || 0) + 'x' + (window.innerHeight || 0);
+                            var docSize = '?';
+                            if (document.documentElement) {
+                                docSize = document.documentElement.clientWidth + 'x' +
+                                    document.documentElement.clientHeight;
+                            }
+                            var errs = (window.__otldErrCount || 0);
+                            var rejs = (window.__otldRejectCount || 0);
+                            var memMb = '?';
+                            try {
+                                if (window.performance && window.performance.memory) {
+                                    memMb = Math.round(window.performance.memory.usedJSHeapSize / 1048576);
+                                }
+                            } catch (_) {}
+                            var maskEl = document.getElementById('otld-sheets-mask');
+                            var maskAlive = !!maskEl;
+                            var hidden = document.hidden;
+
                             var msg = 'elapsed_ms=' + elapsed +
                                 ' rs=' + rs +
                                 ' canvas=' + hasCanvas +
                                 ' grid=' + hasGridContainer +
                                 ' editor=' + hasEditor +
                                 ' body_vis=' + bodyVis +
-                                ' ready=' + ready;
+                                ' ready=' + ready +
+                                ' canvas_px=' + canvasSize +
+                                ' viewport=' + vp +
+                                ' doc=' + docSize +
+                                ' mask=' + maskAlive +
+                                ' hidden=' + hidden +
+                                ' errs=' + errs +
+                                ' rejs=' + rejs +
+                                ' jsmem_mb=' + memMb;
                             if (window.__otldLog) window.__otldLog('PROBE', msg);
                             // Stop probing после 60s — лога достаточно для diag
                             if (elapsed > 60000) {

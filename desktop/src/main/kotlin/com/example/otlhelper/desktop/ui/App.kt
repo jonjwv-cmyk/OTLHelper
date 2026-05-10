@@ -79,7 +79,12 @@ fun App() {
         // §0.11.12 — Kaspersky/AV monitor. Логирует AV процессы +
         // injected DLL + temp I/O latency в Desktop\otl-debug.log.
         // Тег [AV_MONITOR]. Periodic re-scan каждую минуту.
+        // §0.11.14.1 — расширен: process spawn timing, file I/O timing,
+        // network probe, executable location class, shutdown hook.
         com.example.otlhelper.desktop.core.debug.KasperskyMonitor.start()
+        // §0.11.14.1 — periodic heap/threads/GC/uptime snapshot каждые 30s.
+        // Тег [SYS_METRICS]. Spike warnings: GC pressure, heap leak, thread leak.
+        com.example.otlhelper.desktop.core.debug.SystemMetricsLogger.start()
     }
 
     // §0.11.9 — SAP triple Ctrl+C launcher. Глобальный hotkey listener
@@ -101,10 +106,28 @@ fun App() {
     }
     var login by remember { mutableStateOf("") }
     // Логируем любой переход state (после declaration login)
+    // §0.11.14.1 — добавили dwell time предыдущего state, uptime, heap snapshot.
+    var stateTransitionTs by remember { mutableStateOf(System.currentTimeMillis()) }
+    var prevAppState by remember { mutableStateOf<AppState?>(null) }
     LaunchedEffect(state) {
-        com.example.otlhelper.desktop.core.debug.DebugLogger.log(
-            "STATE", "AppState → $state (login=$login)"
+        val now = System.currentTimeMillis()
+        val dwellMs = now - stateTransitionTs
+        val uptimeMs = java.lang.management.ManagementFactory.getRuntimeMXBean().uptime
+        val rt = Runtime.getRuntime()
+        val heapUsedMb = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024)
+        com.example.otlhelper.desktop.core.debug.DebugLogger.event(
+            "STATE",
+            "transition" to "appstate",
+            "from" to (prevAppState?.name ?: "null"),
+            "to" to state.name,
+            "login" to login.ifBlank { "-" },
+            "prev_dwell_ms" to dwellMs,
+            "uptime_ms" to uptimeMs,
+            "heap_mb" to heapUsedMb,
+            "threads" to Thread.activeCount(),
         )
+        stateTransitionTs = now
+        prevAppState = state
     }
     var fullName by remember { mutableStateOf("") }
     var avatarUrl by remember { mutableStateOf("") }
