@@ -540,12 +540,17 @@ object SheetsCss {
                 window.__otldLog('MASK', 'inject_start url=' + (location.href || '').slice(0, 100));
             } catch (_) {}
             try {
+                // §0.11.13.1 — Сохраняем CSS в global чтобы ensureMask мог
+                // переинжектить если Google Sheets удалит <style> при
+                // полной перерисовке DOM (например revision restore через
+                // File → History → Restore this version).
+                window.__otldCss = ${jsString(CSS)};
                 var existing = document.getElementById('otld-sheets-mask');
                 if (existing) existing.remove();
                 var style = document.createElement('style');
                 style.id = 'otld-sheets-mask';
                 style.type = 'text/css';
-                style.appendChild(document.createTextNode(${jsString(CSS)}));
+                style.appendChild(document.createTextNode(window.__otldCss));
                 (document.head || document.documentElement).appendChild(style);
                 if (document.body) document.body.style.visibility = 'hidden';
                 window.__otldSheetsReady = false;
@@ -745,6 +750,27 @@ object SheetsCss {
                 // Без observer'а наши hide'ы применяются один раз и новые
                 // элементы остаются видимыми. Re-trigger compactChrome +
                 // hideBottomBarRemnants на каждое изменение DOM (debounced).
+                //
+                // §0.11.13.1 — ensureMask() проверяет что наш <style id="otld-sheets-mask">
+                // ВСЁ ЕЩЁ присутствует в DOM. Google Sheets при revision restore
+                // (File → History → Restore this version) делает full re-init,
+                // удаляет наш style tag → юзер видит сырой Google chrome.
+                // Observer fires на DOM изменение — переинжектируем style
+                // если он пропал.
+                window.__otldEnsureMask = function() {
+                    try {
+                        if (!document.getElementById('otld-sheets-mask') && window.__otldCss) {
+                            var s = document.createElement('style');
+                            s.id = 'otld-sheets-mask';
+                            s.type = 'text/css';
+                            s.appendChild(document.createTextNode(window.__otldCss));
+                            (document.head || document.documentElement).appendChild(s);
+                            if (window.__otldLog) window.__otldLog('MASK', 'reinjected_after_dom_strip');
+                            return true;
+                        }
+                    } catch (_) {}
+                    return false;
+                };
                 if (!window.__otldMutationObserver) {
                     try {
                         var debounceTimer = null;
@@ -752,6 +778,7 @@ object SheetsCss {
                             if (debounceTimer) clearTimeout(debounceTimer);
                             debounceTimer = setTimeout(function() {
                                 try {
+                                    window.__otldEnsureMask();
                                     compactChrome();
                                     hideBottomBarRemnants();
                                 } catch (_) {}
@@ -763,9 +790,28 @@ object SheetsCss {
                         });
                         window.__otldMutationObserver = observer;
                         console.log('[OTLD] MutationObserver installed');
+                        if (window.__otldLog) window.__otldLog('MASK', 'observer_installed');
                     } catch (e) {
                         console.error('[OTLD] MutationObserver install failed', e);
                     }
+                }
+                // §0.11.13.1 — periodic safety net каждые 4 сек.
+                // Если MutationObserver пропустил какое-то изменение DOM
+                // (или сам observer был удалён при full re-init),
+                // эта проверка восстанавливает маску. 4 сек — компромисс
+                // между скоростью реакции и нагрузкой.
+                if (!window.__otldMaskGuardian) {
+                    window.__otldMaskGuardian = setInterval(function() {
+                        try {
+                            var injected = window.__otldEnsureMask && window.__otldEnsureMask();
+                            if (injected) {
+                                // После переинжекта — повторно скроем chrome
+                                compactChrome();
+                                hideBottomBarRemnants();
+                            }
+                        } catch (_) {}
+                    }, 4000);
+                    if (window.__otldLog) window.__otldLog('MASK', 'guardian_started');
                 }
                 function revealWhenReady() {
                     try {
