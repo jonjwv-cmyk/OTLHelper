@@ -363,14 +363,15 @@ fun App() {
                     if (br != null) break
                     kotlinx.coroutines.delay(100)
                 }
+                val ctrl = br ?: return@withTimeoutOrNull
                 // Стартовое isRevealing = false по умолчанию (если ещё не triggered).
                 // Wait until либо стало true (pipeline started) и потом false (done),
                 // либо first emission false с current=spreadsheet (already revealed).
                 // Простой подход: если за 3с не стало true — считаем уже revealed.
                 kotlinx.coroutines.withTimeoutOrNull(3_000) {
-                    br.isRevealing.first { it } // wait until reveal-pipeline started
+                    ctrl.isRevealing.first { it } // wait until reveal-pipeline started
                 }
-                br.isRevealing.first { !it } // wait until reveal-done
+                ctrl.isRevealing.first { !it } // wait until reveal-done
             }
 
             com.example.otlhelper.desktop.sheets.SheetsViewBridge.externalSplashOverlay.value = false

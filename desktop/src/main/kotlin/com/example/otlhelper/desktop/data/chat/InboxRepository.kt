@@ -149,7 +149,11 @@ class InboxRepository(private val scope: CoroutineScope) {
     )
 
     companion object {
-        private const val POLL_INTERVAL_MS = 10_000L
+        // §0.10.26 — был 10s, уменьшен до 3s. Юзер просил мгновенный
+        // refresh статусов (presence dot online/paused/offline) в chat
+        // list. True realtime (<1s) требует WS presence event broadcast
+        // на сервере — отдельный спринт 0.11.0.
+        private const val POLL_INTERVAL_MS = 3_000L
         private const val CACHE_KEY = "inbox"
     }
 }

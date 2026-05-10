@@ -145,7 +145,16 @@ internal fun WorkspaceDialogs(
         )
     }
     if (state.userManagementOpen) {
-        LaunchedEffect(Unit) { usersRepo.refresh() }
+        // §0.10.26 — auto-poll каждые 3 сек когда screen open. Юзер хочет
+        // мгновенный refresh статусов (presence dot online/paused/offline).
+        // True realtime (<1s) требует WS presence event broadcast — отдельный
+        // спринт 0.11.0. Пока 3-сек polling даёт subjective realtime.
+        LaunchedEffect(Unit) {
+            while (true) {
+                usersRepo.refresh()
+                kotlinx.coroutines.delay(3_000)
+            }
+        }
         UserManagementSheet(
             state = usersState,
             currentRole = role,
