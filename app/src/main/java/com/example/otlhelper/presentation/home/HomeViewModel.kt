@@ -724,6 +724,19 @@ class HomeViewModel @Inject constructor(
         adminController.resetPasswordSilent(targetLogin, newPassword, onResult)
     fun deleteUserAdmin(targetLogin: String, onResult: (Boolean) -> Unit) =
         adminController.deleteUser(targetLogin, onResult)
+    // §0.11.3 — reset password login counter (developer/superadmin only).
+    // Используется в UserRow menu для разблокировки юзера после превышения
+    // лимита парольных входов на ПК.
+    fun resetPasswordLoginCounter(targetLogin: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val resp = runCatching {
+                ApiClient.resetPasswordLoginCounter(targetLogin)
+            }.getOrNull()
+            withContext(Dispatchers.Main) {
+                onResult(resp?.optBoolean("ok", false) == true)
+            }
+        }
+    }
 
     // ── Auto-refresh ─────────────────────────────────────────────────────────
     // Tight polling for the active chat view: admins watching an open

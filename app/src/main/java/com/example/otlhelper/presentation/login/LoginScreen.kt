@@ -15,8 +15,11 @@ import com.example.otlhelper.core.ui.components.AppButtonState
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -73,12 +76,19 @@ fun LoginScreen(
                 tonalElevation = 0.dp
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
+                    // §0.11.3 — autofill hints через semantics. Google Smart
+                    // Lock / Password Manager увидит ContentType.Username +
+                    // ContentType.Password → предложит сохранить creds после
+                    // успешного login (как Telegram/WhatsApp/etc).
                     OtlTextField(
                         value = login,
                         onValueChange = { login = it },
                         label = "Логин",
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                        keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
+                        keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                        modifier = Modifier.semantics {
+                            contentType = ContentType.Username
+                        },
                     )
                     Spacer(Modifier.height(16.dp))
                     OtlTextField(
@@ -93,7 +103,10 @@ fun LoginScreen(
                         keyboardActions = KeyboardActions(onDone = {
                             focusManager.clearFocus()
                             viewModel.login(login, password)
-                        })
+                        }),
+                        modifier = Modifier.semantics {
+                            contentType = ContentType.Password
+                        },
                     )
                     Spacer(Modifier.height(8.dp))
 
@@ -169,13 +182,14 @@ private fun OtlTextField(
     label: String,
     visualTransformation: androidx.compose.ui.text.input.VisualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    keyboardActions: KeyboardActions = KeyboardActions.Default
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    modifier: Modifier = Modifier,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label, color = TextSecondary) },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(modifier),
         visualTransformation = visualTransformation,
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,

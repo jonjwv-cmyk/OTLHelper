@@ -208,21 +208,41 @@ private fun QrLoginPanel(
     }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // §0.11.3 — QR код в белой рамке с тёмной обводкой (border).
+        // Раньше QR на чёрном Box без рамки выглядел "наклеенным".
+        // Теперь: внешний Box (тёмный с border 1.5dp Accent.alpha) →
+        // внутри inner Box white background → QR. Похоже на физический
+        // QR-стикер (как в Steam Mobile, Apple Pay).
         Box(
-            modifier = Modifier.size(280.dp).clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF1A1A1C)),
+            modifier = Modifier.size(296.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF1A1A1C))
+                .border(
+                    width = 1.5.dp,
+                    color = Accent.copy(alpha = 0.55f),
+                    shape = RoundedCornerShape(20.dp),
+                )
+                .padding(8.dp),
             contentAlignment = Alignment.Center,
         ) {
-            val payload = qrPayload
-            if (loading || payload == null) {
-                CircularProgressIndicator(color = Accent, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
-            } else {
-                val bitmap = remember(payload) { QrRenderer.render(payload, sizePx = 320) }
-                Image(
-                    painter = BitmapPainter(bitmap),
-                    contentDescription = "QR",
-                    modifier = Modifier.size(260.dp),
-                )
+            Box(
+                modifier = Modifier.size(280.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.White)
+                    .padding(10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                val payload = qrPayload
+                if (loading || payload == null) {
+                    CircularProgressIndicator(color = Accent, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
+                } else {
+                    val bitmap = remember(payload) { QrRenderer.render(payload, sizePx = 320) }
+                    Image(
+                        painter = BitmapPainter(bitmap),
+                        contentDescription = "QR",
+                        modifier = Modifier.size(260.dp),
+                    )
+                }
             }
         }
         Spacer(Modifier.height(14.dp))

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -180,6 +181,17 @@ internal fun UserRow(
                     viewModel.toggleUserAdmin(login) { ok -> onStatusChange(if (ok) "Статус изменён" else "Ошибка") }
                 }
                 MenuItemRow(Icons.Outlined.Key, "Сбросить пароль") { showMenu = false; showResetDialog = true }
+                // §0.11.3 — для developer/superadmin показываем пункт сброса
+                // лимита парольных входов (на Desktop уже есть). Юзер: «и на
+                // андройде для разработчика тоже пункт добавь».
+                if (viewModel.role == Role.Developer) {
+                    MenuItemRow(Icons.Outlined.RestartAlt, "Сбросить лимит парольных входов") {
+                        showMenu = false
+                        viewModel.resetPasswordLoginCounter(login) { ok ->
+                            onStatusChange(if (ok) "Лимит сброшен" else "Ошибка")
+                        }
+                    }
+                }
                 HorizontalDivider(color = BorderDivider, modifier = Modifier.padding(vertical = 4.dp))
                 MenuItemRow(Icons.Outlined.Delete, "Удалить", tint = StatusErrorBorder) { showMenu = false; showDeleteConfirm = true }
             }
