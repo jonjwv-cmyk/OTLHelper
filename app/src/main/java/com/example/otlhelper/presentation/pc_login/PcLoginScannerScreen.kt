@@ -96,9 +96,17 @@ fun PcLoginScannerScreen(onClose: () -> Unit) {
                 val resp = withContext(Dispatchers.IO) { ApiClient.redeemQrToken(challenge) }
                 if (resp.optBoolean("ok", false)) {
                     val s = resp.optJSONObject("session")
-                    val until = s?.optString("expires_at")?.takeLast(8)?.dropLast(3) ?: ""
+                    val expiresAtIso = s?.optString("expires_at") ?: ""
                     val device = s?.optString("device_label") ?: ""
-                    status = "✅ PC сессия активна${if (device.isNotBlank()) " ($device)" else ""}.\nДо $until UTC."
+                    // §0.11.2 — формат "до 9:15 AM 10 мая" вместо "До HH:mm UTC"
+                    // Yekaterinburg time, h:mm a (AM/PM), русская дата.
+                    val untilFormatted = formatExpiresYek(expiresAtIso)
+                    status = buildString {
+                        append("✅ ПК сессия активна")
+                        if (device.isNotBlank()) append(" ($device)")
+                        append(".\n")
+                        if (untilFormatted.isNotBlank()) append("До $untilFormatted")
+                    }
                     success = true
                 } else {
                     status = "Ошибка: ${resp.optString("error", "unknown")}"
@@ -206,5 +214,27 @@ fun PcLoginScannerScreen(onClose: () -> Unit) {
                 }
             }
         }
+    }
+}
+
+/**
+ * §0.11.2 — formatируем ISO expires_at в Yekaterinburg time + AM/PM + дата.
+ * Пример: "9:15 AM 10 мая" / "5:30 PM 24 декабря".
+ */
+private fun formatExpiresYek(iso: String): String {
+    if (iso.isBlank()) return ""
+    return try {
+        val normalized = if (iso.contains('T')) {
+            if (iso.endsWith("Z") || iso.contains('+')) iso else "${iso}Z"
+        } else {
+            "${iso.replace(' ', 'T')}Z"
+        }
+        val zdt = java.time.ZonedDateTime.parse(normalized)
+        val yek = zdt.withZoneSameInstant(java.time.ZoneId.of("Asia/Yekaterinburg"))
+        val timePart = yek.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.ENGLISH))
+        val datePart = yek.format(java.time.format.DateTimeFormatter.ofPattern("d MMMM", java.util.Locale.forLanguageTag("ru")))
+        "$timePart $datePart"
+    } catch (_: Exception) {
+        ""
     }
 }

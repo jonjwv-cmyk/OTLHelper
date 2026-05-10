@@ -227,12 +227,14 @@ private fun formatLastSeen(raw: String): String {
 
 @Composable
 private fun RoleBadge(role: String) {
+    // §0.11.2 — обычные юзеры (USER) не получают badge — пустое место.
+    // Только DEV/ADM/CLI отмечены. SADM (superadmin) трактуется как DEV
+    // (developer-level access). Совпадает с Android паттерном.
     val label = when (role.lowercase()) {
-        "developer" -> "DEV"
-        "superadmin" -> "SADM"
+        "developer", "superadmin" -> "DEV"
         "admin" -> "ADM"
         "client" -> "CLI"
-        else -> "USER"
+        else -> return  // user — без badge
     }
     Box(
         modifier = Modifier

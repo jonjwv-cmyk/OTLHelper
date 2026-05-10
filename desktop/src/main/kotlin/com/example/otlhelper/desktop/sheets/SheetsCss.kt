@@ -90,6 +90,31 @@ object SheetsCss {
             display: none !important;
         }
 
+        /* §0.11.2 — bottom-left sheet-list toggle (☰ кнопка которая
+           открывает full sheet list popup). Юзер использует TopBar TabStrip,
+           native sheet list не нужен. */
+        #docs-menubar-share-client-button,
+        button[aria-label*="Все листы"],
+        button[aria-label*="All sheets"],
+        button[data-tooltip*="Все листы"],
+        button[data-tooltip*="All sheets"],
+        .docs-sheet-show-all-tabs-button,
+        .docs-grid-bar-show-all-tabs-button,
+        .waffle-sheet-list-toggle,
+        .docs-sheet-bar-list-button,
+        [aria-label="Список листов"],
+        [aria-label="Sheets list"] {
+            display: none !important;
+        }
+
+        /* §0.11.2 — Полный bottom bar Sheets (где tabs + ☰ + < arrow).
+           Юзер использует наш TabStrip — native bar полностью убрать. */
+        .docs-sheet-tab-bar,
+        .docs-sheet-bar,
+        .docs-grid-bar {
+            display: none !important;
+        }
+
         /* ──────────────────────────────────────────────────────
          * 2) Большая иконка Google Sheets в верхнем-левом углу
          *    (ведёт на Drive — отдельная страница со списком файлов

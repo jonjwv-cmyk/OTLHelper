@@ -354,9 +354,12 @@ fun App() {
             kotlinx.coroutines.delay(1_000)
             kotlinx.coroutines.withTimeoutOrNull(5_000) { loadJob.join() }
 
-            // Wait for browser ref to appear in bridge, then for reveal-done.
-            kotlinx.coroutines.withTimeoutOrNull(90_000) {
-                // Polling browser ref (mount async может занять секунды на slow PC)
+            // §0.11.2 — outer timeout уменьшен 90s→20s. На re-login после
+            // logout WebView2 может не emit isRevealing event (same-URL
+            // optimization), splash висел. Теперь max 20s даже если reveal
+            // не fired — гарантия что юзер не сидит вечно с котом.
+            // Force visible browser в конце как safety.
+            kotlinx.coroutines.withTimeoutOrNull(20_000) {
                 var br: com.example.otlhelper.desktop.sheets.SheetsBrowserController? = null
                 while (br == null) {
                     br = com.example.otlhelper.desktop.sheets.SheetsViewBridge.browser
@@ -364,14 +367,19 @@ fun App() {
                     kotlinx.coroutines.delay(100)
                 }
                 val ctrl = br ?: return@withTimeoutOrNull
-                // Стартовое isRevealing = false по умолчанию (если ещё не triggered).
-                // Wait until либо стало true (pipeline started) и потом false (done),
-                // либо first emission false с current=spreadsheet (already revealed).
-                // Простой подход: если за 3с не стало true — считаем уже revealed.
                 kotlinx.coroutines.withTimeoutOrNull(3_000) {
-                    ctrl.isRevealing.first { it } // wait until reveal-pipeline started
+                    ctrl.isRevealing.first { it } // wait reveal-pipeline started
                 }
-                ctrl.isRevealing.first { !it } // wait until reveal-done
+                ctrl.isRevealing.first { !it } // wait reveal-done
+            }
+
+            // §0.11.2 — force visible browser. На re-login было: splash off
+            // → но webview HWND скрыт через needsWebviewHide=true (externalSplash).
+            // Если splash off через timeout без reveal → браузер остаётся
+            // hidden. Force show тут гарантирует что юзер видит Sheets даже
+            // если reveal pipeline не отработал нормально.
+            runCatching {
+                com.example.otlhelper.desktop.sheets.SheetsViewBridge.browser?.setVisible(true)
             }
 
             com.example.otlhelper.desktop.sheets.SheetsViewBridge.externalSplashOverlay.value = false
