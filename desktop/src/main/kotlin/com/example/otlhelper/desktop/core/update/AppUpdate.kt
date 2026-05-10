@@ -341,6 +341,16 @@ object AppUpdate {
         }
         runCatching { Thread.sleep(2000) }
 
+        // §0.11.1 — explicit release SingleInstanceLock ДО запуска cmd chain.
+        // Иначе race: старый JVM exit'ится через scheduleExit(1500), но lock
+        // file release через shutdownHook может опоздать. Cmd chain через 10s
+        // запускает new EXE → SingleInstanceLock.acquireOrSignal видит занятый
+        // lock → шлёт focus signal → exit'ится. Старый EXE продолжает работать
+        // в tray со старой версией, юзер думает «обновление не сработало».
+        runCatching {
+            com.example.otlhelper.desktop.core.SingleInstanceLock.releaseForUpdate()
+        }
+
         // §TZ-DESKTOP-NATIVE-2026-05 0.8.16 — логируем installer output в
         // %LOCALAPPDATA%\.otldhelper\update.log. Без этого "тихий fail"
         // (юзер видит "ничего не происходит" после Обновить).

@@ -98,6 +98,27 @@ object SingleInstanceLock {
         }
     }
 
+    /**
+     * §0.11.1 — explicit release ДО запуска installer chain. Иначе race:
+     * 1. Старый JVM exitProcess(0) → shutdownHook releases lock через X ms
+     * 2. Cmd chain start "" "$installedExe" → new EXE стартует
+     * 3. Если lock release не успел — new EXE acquireOrSignal() видит lock,
+     *    шлёт focus signal, exits. Юзер думает "обновление не сработало"
+     *    (фоновый старый EXE продолжает в tray со старой версией).
+     *
+     * Вызывается из AppUpdate.runWindowsSilent() ПЕРЕД scheduleExit.
+     */
+    fun releaseForUpdate() {
+        runCatching { fileLock?.release() }
+        runCatching { lockChannel?.close() }
+        runCatching { probeServer?.close() }
+        runCatching { lockFile().delete() }
+        fileLock = null
+        lockChannel = null
+        probeServer = null
+        println("[OTL] SingleInstanceLock: explicitly released for update")
+    }
+
     private fun lockFile(): File {
         val home = System.getProperty("user.home")
             ?: System.getenv("USERPROFILE")
