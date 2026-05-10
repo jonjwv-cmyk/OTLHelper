@@ -47,10 +47,29 @@ import com.example.otlhelper.desktop.theme.TextSecondary
  */
 @Composable
 fun SapLauncherIntegration() {
+    // §0.11.9 — triple Ctrl+C launcher (буфер → SAP)
     DisposableEffect(Unit) {
         SapClipboardLauncher.init()
         onDispose { SapClipboardLauncher.shutdown() }
     }
+
+    // §0.11.10 — Ctrl+Q listener (SAP → OTLHelper inspector)
+    DisposableEffect(Unit) {
+        if (com.example.otlhelper.desktop.BuildInfo.IS_WINDOWS) {
+            GlobalCtrlQHotkey.start { SapInspectorController.trigger() }
+            com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                "SAP_INSPECTOR", "Ctrl+Q hotkey registered"
+            )
+        }
+        onDispose {
+            if (com.example.otlhelper.desktop.BuildInfo.IS_WINDOWS) {
+                GlobalCtrlQHotkey.stop()
+            }
+        }
+    }
+
+    // Inspector dialog (отображается когда state != Hidden)
+    SapInspectorRoot()
 
     val event by SapClipboardLauncher.events.collectAsState()
     val current = event ?: return
