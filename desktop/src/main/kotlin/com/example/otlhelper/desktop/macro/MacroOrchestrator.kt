@@ -57,6 +57,12 @@ object MacroOrchestrator {
     }
 
     private const val OUTPUT_ENV = "OTL_MACRO_OUTPUT"
+    // §0.11.6 — единый debug-log для VBS макроса. Передаём через env var
+    // полный путь Desktop\otl-debug.log чтобы VBS append'ил туда checkpoints
+    // вместо C:\Users\Public\otl-macro-debug.log. Юзер хочет всё в одном
+    // файле для корреляции timing'а с приложением (Касперский блоки,
+    // SAP заминки, Excel COM лаги и т.д.).
+    private const val DEBUG_LOG_ENV = "OTL_MACRO_DEBUG_LOG"
     private const val MACRO_TIMEOUT_SEC = 600L  // 10 минут SAP work max
 
     /**
@@ -164,6 +170,14 @@ object MacroOrchestrator {
                 vbsFile.absolutePath,
             ).apply {
                 environment()[OUTPUT_ENV] = outputFile.absolutePath
+                // §0.11.6 — VBS пишет debug в тот же файл что и приложение
+                // (Desktop\otl-debug.log). Все логи в одном месте для
+                // корреляции timing.
+                val sharedDebugLog = File(
+                    File(System.getProperty("user.home") ?: ".", "Desktop"),
+                    "otl-debug.log"
+                ).absolutePath
+                environment()[DEBUG_LOG_ENV] = sharedDebugLog
                 // §TZ-DESKTOP-0.10.24 ROLLBACK — env var отключён.
                 // SW_HIDE ломает SAP scripting (SAP вызывает SetForegroundWindow
                 // / BringWindowToTop, эти API не работают на скрытых окнах →
