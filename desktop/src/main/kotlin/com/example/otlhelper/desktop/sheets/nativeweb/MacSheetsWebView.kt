@@ -55,9 +55,17 @@ internal object MacSheetsLog {
     }
 
     fun event(tag: String, details: String = "") {
+        // Legacy log файл (для совместимости со старыми анализаторами).
         runCatching {
             val line = "[${LocalTime.now().format(ts)}] [event=$tag] $details\n"
             File(path).appendText(line)
+        }
+        // §0.11.13 — дубль в общий ~/Desktop/otl-debug.log который юзер
+        // присылает. Тэг WV-MAC-{tag}: отделяем от Win событий.
+        runCatching {
+            com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                "WV-MAC", "$tag $details"
+            )
         }
     }
 }

@@ -516,6 +516,29 @@ object SheetsCss {
      */
     val INJECT_JS: String = """
         (function() {
+            // §0.11.13 — JS→Java logging bridge.
+            // На Win: chrome.webview.postMessage(...) → C++ NativeUtils
+            // буферизирует → Kotlin popWebMessages() парсит OTLD-LOG: префикс
+            // → DebugLogger.event("WV-JS", ...). На Mac пока через console.log
+            // (нет user content controller bridge).
+            //
+            // Idempotent — переустанавливается при каждом INJECT_JS вызове.
+            // Хранит state в window.__otldLog (re-используется во всех retry
+            // closures — compactChrome, hideBottomBarRemnants, и т.д.).
+            try {
+                window.__otldLog = function(tag, msg) {
+                    try {
+                        var line = 'OTLD-LOG:' + tag + ':' + String(msg).slice(0, 500);
+                        if (window.chrome && window.chrome.webview &&
+                            typeof window.chrome.webview.postMessage === 'function') {
+                            window.chrome.webview.postMessage(line);
+                        }
+                        // Fallback duplicate в console (Mac или если bridge упал)
+                        console.log('[OTLD][' + tag + '] ' + msg);
+                    } catch (_) {}
+                };
+                window.__otldLog('MASK', 'inject_start url=' + (location.href || '').slice(0, 100));
+            } catch (_) {}
             try {
                 var existing = document.getElementById('otld-sheets-mask');
                 if (existing) existing.remove();
@@ -526,7 +549,7 @@ object SheetsCss {
                 (document.head || document.documentElement).appendChild(style);
                 if (document.body) document.body.style.visibility = 'hidden';
                 window.__otldSheetsReady = false;
-                console.log('[OTLD] Sheets mask injected');
+                if (window.__otldLog) window.__otldLog('MASK', 'css_appended body_hidden=' + !!document.body);
                 var attempts = 0;
                 function isReady() {
                     attempts += 1;
@@ -756,12 +779,51 @@ object SheetsCss {
                             if (document.documentElement) document.documentElement.style.visibility = 'visible';
                             window.__otldSheetsReady = true;
                             console.info('__OTLD_SHEETS_READY__');
+                            if (window.__otldLog) window.__otldLog('MASK', 'reveal_ready attempts=' + attempts);
                             return;
                         }
                         setTimeout(revealWhenReady, 120);
                     } catch (e) {
                         if (document.body) document.body.style.visibility = 'visible';
+                        if (window.__otldLog) window.__otldLog('MASK', 'reveal_error msg=' + (e.message || e));
                     }
+                }
+                // §0.11.13 — periodic grid/body state probe.
+                // Каждую секунду пишет через bridge: gridReady, bodyVisibility,
+                // documentReadyState, attempts. Помогает понять *почему* юзер
+                // видит "белый экран" — была ли страница загружена, было ли
+                // body show'нуто, был ли grid present.
+                if (!window.__otldProbeStarted) {
+                    window.__otldProbeStarted = true;
+                    var probeStart = Date.now();
+                    var probeIntervalId = setInterval(function() {
+                        try {
+                            var hasCanvas = !!document.querySelector('canvas');
+                            var hasGridContainer = !!(
+                                document.querySelector('#waffle-grid-container') ||
+                                document.querySelector('.waffle-grid-container') ||
+                                document.querySelector('.grid-container')
+                            );
+                            var hasEditor = !!document.querySelector('#docs-editor');
+                            var bodyVis = document.body ? document.body.style.visibility : '?';
+                            var ready = window.__otldSheetsReady;
+                            var rs = document.readyState;
+                            var elapsed = Date.now() - probeStart;
+                            var msg = 'elapsed_ms=' + elapsed +
+                                ' rs=' + rs +
+                                ' canvas=' + hasCanvas +
+                                ' grid=' + hasGridContainer +
+                                ' editor=' + hasEditor +
+                                ' body_vis=' + bodyVis +
+                                ' ready=' + ready;
+                            if (window.__otldLog) window.__otldLog('PROBE', msg);
+                            // Stop probing после 60s — лога достаточно для diag
+                            if (elapsed > 60000) {
+                                clearInterval(probeIntervalId);
+                                if (window.__otldLog) window.__otldLog('PROBE', 'stopped_60s');
+                            }
+                        } catch (_) {}
+                    }, 1000);
                 }
                 requestAnimationFrame(function() {
                     requestAnimationFrame(revealWhenReady);
@@ -784,6 +846,34 @@ object SheetsCss {
         setTimeout(function() { try { window.dispatchEvent(new Event('resize')); } catch(e) {} }, 250);
         setTimeout(function() { try { window.dispatchEvent(new Event('resize')); } catch(e) {} }, 900);
         setTimeout(function() { try { window.dispatchEvent(new Event('resize')); } catch(e) {} }, 1800);
+    """.trimIndent()
+
+    /**
+     * §0.11.13 — Startup-script wrapper для AddScriptToExecuteOnDocumentCreated.
+     *
+     * Применяет полный [INJECT_JS] **только** на spreadsheet URL'ах.
+     * На login/redirect страницах (accounts.google.com и т.п.) — no-op,
+     * чтобы юзер видел login form нормально (не скрытым через body:hidden).
+     *
+     * Этот скрипт регистрируется ОДИН раз на webview через
+     * `webViewAddStartupScript()` и автоматически выполняется на каждой
+     * новой Navigate, ДО создания <body>, ДО first paint Google chrome'а.
+     *
+     * Effect: Sheets никогда не показывает свой chrome — маска уже в
+     * <head> к моменту когда Sheets сам начинает добавлять элементы.
+     */
+    val STARTUP_INJECT_JS: String = """
+        (function() {
+            try {
+                var url = (location.href || '').toLowerCase();
+                if (url.indexOf('docs.google.com/spreadsheets') === -1) {
+                    // Не spreadsheet (login redirect, error page) — skip
+                    return;
+                }
+                // Spreadsheet detected — applying full mask via INJECT_JS
+            } catch (_) { return; }
+            ${INJECT_JS}
+        })();
     """.trimIndent()
 
     private fun jsString(text: String): String =

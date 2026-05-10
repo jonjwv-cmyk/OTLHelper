@@ -125,6 +125,23 @@ internal interface WinWebViewNative : Library {
     fun evaluateJavaScript(webViewId: Long, jsCode: String)
     fun webViewPopWebMessage(webViewId: Long): Pointer?
 
+    /**
+     * §0.11.13 — Pre-injection startup script.
+     *
+     * Регистрирует JS-скрипт который будет выполняться **ДО любого
+     * скрипта страницы** на каждой новой Navigate. Эффективен ТОЛЬКО для
+     * NEXT navigations — если webview уже загрузил страницу, она не
+     * получит этот скрипт (используй [evaluateJavaScript] для текущей).
+     *
+     * Под капотом — `ICoreWebView2::AddScriptToExecuteOnDocumentCreated`.
+     *
+     * Возвращает 0 (S_OK) при успехе, не-0 HRESULT при ошибке.
+     *
+     * Use case: применение CSS-маски Sheets ДО первого render — таблица
+     * никогда не показывает свой chrome, нет race с body parsing.
+     */
+    fun webViewAddStartupScript(webViewId: Long, jsCode: String): Int
+
     // ── Visibility ──────────────────────────────────────────────────
     fun setWebViewVisible(webViewId: Long, visible: Boolean)
     /** Win HWND не имеет alpha, но мы можем использовать `SetLayeredWindowAttributes`.

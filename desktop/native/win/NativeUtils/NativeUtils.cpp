@@ -810,6 +810,47 @@ extern "C" __declspec(dllexport) char* webViewPopWebMessage(int64_t id) {
     return buf;
 }
 
+// §0.11.13 — Pre-injection startup script через
+// ICoreWebView2::AddScriptToExecuteOnDocumentCreated. Скрипт исполняется
+// ДО любого скрипта страницы — ДО создания <body>, ДО первого render.
+//
+// Используется для CSS-маски Sheets: вместо инжекта в onLoadEnd (после
+// первого paint Google chrome'а), мы регистрируем INJECT_JS как startup
+// script сразу после createWebView. Sheets никогда не показывает свой
+// raw chrome — body.style.visibility='hidden' применяется при создании
+// document'а, маска вешается в <head> до первого render.
+//
+// Эффективен ТОЛЬКО для Navigate'ов которые произойдут ПОСЛЕ вызова этой
+// функции. Если страница уже загружена — она не получит этот скрипт.
+//
+// Возвращает 0 при success, не-0 HRESULT при ошибке.
+extern "C" __declspec(dllexport) int32_t webViewAddStartupScript(int64_t id, const char* jsCode) {
+    ensureComInitialized();
+    auto inst = findInstance(id);
+    if (!inst || !inst->webview || !jsCode) {
+        dlog("webViewAddStartupScript: bad args (inst=%p, webview=%p, js=%p)",
+            (void*)inst.get(),
+            (void*)(inst ? inst->webview.Get() : nullptr),
+            (const void*)jsCode);
+        return -1;
+    }
+    size_t len = strlen(jsCode);
+    std::wstring wjs = utf8ToWide(jsCode);
+    HRESULT hr = inst->webview->AddScriptToExecuteOnDocumentCreated(
+        wjs.c_str(),
+        Callback<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler>(
+            [id, len](HRESULT errorCode, LPCWSTR /*scriptId*/) -> HRESULT {
+                dlog("webViewAddStartupScript callback id=%lld jsLen=%zu hr=0x%08x",
+                    (long long)id, len, (unsigned)errorCode);
+                return S_OK;
+            }
+        ).Get()
+    );
+    dlog("webViewAddStartupScript(id=%lld, jsLen=%zu) thread=%lu hr=0x%08x",
+        (long long)id, len, GetCurrentThreadId(), (unsigned)hr);
+    return static_cast<int32_t>(hr);
+}
+
 // ────────────────────────────────────────────────────────────────────
 // Exports — Visibility
 // ────────────────────────────────────────────────────────────────────

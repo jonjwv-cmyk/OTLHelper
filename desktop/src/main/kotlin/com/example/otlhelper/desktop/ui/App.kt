@@ -229,9 +229,15 @@ fun App() {
                         desktopUpdateSha = sha,
                         desktopForceUpdate = force,
                     )
+                    // §0.11.13 — показываем диалог обновления ТОЛЬКО если
+                    // серверная версия СТРОГО ВЫШЕ клиента. Раньше было `!=` —
+                    // это значит при локальной dev-сборке (BuildInfo.VERSION
+                    // выше чем D1.current_version который обновляется CI'ем)
+                    // юзер видел "обновитесь до 0.10.x" поверх LoginScreen,
+                    // диалог блокировал QR-форму. Сейчас сравниваем семантически.
                     val needs = current.isNotBlank() &&
                         updUrl.isNotBlank() &&
-                        current != BuildInfo.VERSION
+                        isServerVersionNewer(current, BuildInfo.VERSION)
                     if (needs) {
                         pendingUpdateVersion = current
                         pendingUpdateUrl = updUrl
@@ -721,4 +727,29 @@ fun App() {
             )
         }
     }
+}
+
+/**
+ * §0.11.13 — Семантическое сравнение версий для update-флоу.
+ * Возвращает true если [serverVer] СТРОГО ВЫШЕ [clientVer]. Защита от
+ * "downgrade prompts" когда клиент локально собран на новой версии,
+ * а D1 ещё не обновлён CI'ем.
+ *
+ * Формат: "X.Y.Z" (semantic versioning, без pre-release/build metadata).
+ * Невалидный формат → false (безопасный default — не показываем диалог).
+ */
+private fun isServerVersionNewer(serverVer: String, clientVer: String): Boolean {
+    if (serverVer.isBlank() || clientVer.isBlank()) return false
+    if (serverVer == clientVer) return false
+    val s = serverVer.split('.').mapNotNull { it.toIntOrNull() }
+    val c = clientVer.split('.').mapNotNull { it.toIntOrNull() }
+    if (s.isEmpty() || c.isEmpty()) return false
+    val maxLen = maxOf(s.size, c.size)
+    for (i in 0 until maxLen) {
+        val sv = s.getOrElse(i) { 0 }
+        val cv = c.getOrElse(i) { 0 }
+        if (sv > cv) return true
+        if (sv < cv) return false
+    }
+    return false
 }

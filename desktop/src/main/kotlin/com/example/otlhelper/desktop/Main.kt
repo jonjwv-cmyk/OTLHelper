@@ -43,6 +43,15 @@ fun main() {
         kotlin.system.exitProcess(0)
     }
 
+    // §0.11.13 — единый Desktop\otl-debug.log с системной инфой на старте.
+    // Юзер шлёт файл — мы видим всю историю запуска (версия, OS, JVM, paths).
+    runCatching {
+        com.example.otlhelper.desktop.core.debug.DebugLogger.banner(
+            version = BuildInfo.VERSION,
+            appScope = BuildInfo.SCOPE,
+        )
+    }
+
     // §TZ-DESKTOP-DIST 0.5.1 — стираем оставшиеся расшифрованные media-tmp
     // от предыдущего запуска (если был краш — onCloseRequest не отработал).
     runCatching {

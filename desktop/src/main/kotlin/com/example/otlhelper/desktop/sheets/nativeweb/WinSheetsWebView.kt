@@ -263,6 +263,29 @@ internal class WinSheetsWebViewState(
 
             if (webViewId != 0L) {
                 WinWebViewNative.instance.setBrowserAcceleratorKeysEnabled(webViewId, true)
+                // §0.11.13 — Pre-inject CSS-маска ДО первого Navigate.
+                // AddScriptToExecuteOnDocumentCreated → скрипт исполняется
+                // ПЕРЕД любым скриптом страницы → Sheets никогда не показывает
+                // свой raw chrome. STARTUP_INJECT_JS guard'ит на spreadsheet
+                // URL — на login/redirect страницах no-op, юзер видит форму.
+                runCatching {
+                    val hr = WinWebViewNative.instance.webViewAddStartupScript(
+                        webViewId,
+                        com.example.otlhelper.desktop.sheets.SheetsCss.STARTUP_INJECT_JS,
+                    )
+                    WinSheetsLog.log("webViewAddStartupScript hr=0x${hr.toUInt().toString(16)}")
+                    com.example.otlhelper.desktop.core.debug.DebugLogger.event(
+                        "WV-MASK",
+                        "phase" to "startup_script_registered",
+                        "hr" to "0x${hr.toUInt().toString(16)}",
+                        "len" to com.example.otlhelper.desktop.sheets.SheetsCss.STARTUP_INJECT_JS.length,
+                    )
+                }.onFailure {
+                    WinSheetsLog.log("webViewAddStartupScript EXCEPTION: ${it.message}")
+                    com.example.otlhelper.desktop.core.debug.DebugLogger.error(
+                        "WV-MASK", "startup_script_failed", it
+                    )
+                }
                 WinSheetsLog.log("createOrFail: SUCCESS")
                 0
             } else {
@@ -707,8 +730,40 @@ internal fun WinSheetsWebView(
     // показывал webview с НОВЫМ URL без CSS-маски (race).
     LaunchedEffect(state, loadedUrl) {
         WinSheetsLog.event("reveal-loop-start", "loadedUrl=${loadedUrl?.take(80)}")
+        com.example.otlhelper.desktop.core.debug.DebugLogger.event(
+            "WV-REVEAL", "phase" to "loop_start",
+            "loadedUrl" to (loadedUrl?.take(80) ?: "null"),
+        )
+        var tickCount = 0
         revealLoop@ while (true) {
             delay(180)
+            tickCount++
+            // §0.11.13 — drain JS bridge messages с префиксом OTLD-LOG: и
+            // пишем в DebugLogger. Каждый tick видим что говорит JS-сторона
+            // (CSS injected, grid present, body visible, ошибки).
+            if (state.webViewId != 0L) {
+                runCatching {
+                    withContext(webView2Dispatcher) {
+                        var msg: String?
+                        var drained = 0
+                        do {
+                            msg = state.pollMatching("OTLD-LOG:")
+                            if (msg != null) {
+                                drained++
+                                // Format: "OTLD-LOG:TAG:message"
+                                val payload = msg.removePrefix("OTLD-LOG:")
+                                val sep = payload.indexOf(':')
+                                val tag = if (sep > 0) payload.substring(0, sep) else "JS"
+                                val text = if (sep > 0) payload.substring(sep + 1) else payload
+                                com.example.otlhelper.desktop.core.debug.DebugLogger.log(
+                                    "WV-JS", "[$tag] $text"
+                                )
+                                if (drained >= 32) break  // safety против бесконечного drain
+                            }
+                        } while (msg != null)
+                    }
+                }
+            }
             // §TZ-DESKTOP-NATIVE-2026-05 0.8.20 — DISABLED periodic CSS reapply.
             // Каждый reapply вызывал DOM mutation → Sheets toolbar (формула bar)
             // и status bar (счётчик ячеек) re-render → юзер видел "фризы по
@@ -729,6 +784,21 @@ internal fun WinSheetsWebView(
 
             val current = state.currentUrl.orEmpty()
             val isSpreadsheet = current.contains("docs.google.com/spreadsheets", ignoreCase = true)
+
+            // §0.11.13 — каждые 10 tick'ов (≈ 1.8s) пишем snapshot pipeline state.
+            // Достаточно частоты чтобы reconstruct timeline, но не флудит лог.
+            if (tickCount % 10 == 0) {
+                com.example.otlhelper.desktop.core.debug.DebugLogger.event(
+                    "WV-REVEAL",
+                    "phase" to "tick",
+                    "tick" to tickCount,
+                    "isLoading" to state.isLoading,
+                    "isSpreadsheet" to isSpreadsheet,
+                    "revealed" to revealed,
+                    "maskedUrl" to (maskedUrl?.take(60) ?: "null"),
+                    "url" to current.take(80),
+                )
+            }
             if (forcePlainReveal && current.isNotBlank() && !isSpreadsheet) {
                 delay(350)
                 revealed = true
