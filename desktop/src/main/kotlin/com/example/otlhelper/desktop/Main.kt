@@ -262,13 +262,15 @@ private fun ApplicationScope.appContent() {
                 rootPane?.putClientProperty("apple.awt.windowAppearance", "NSAppearanceNameDarkAqua")
                 window.title = ""
             }
-            // §TZ-DESKTOP-0.10.4 — REVERTED: WinDarkTitleBar.apply() ломал
-            // Sheets webview (KCEF/WebView2 embedded HWND становился чёрным
-            // после DwmSetWindowAttribute call → DWM compositor invalidation).
-            // Юзер: «в 0.10.3 не видно гугл таблиц черный экран».
-            // Тёмный title bar Win вернём в 0.11.0 другим способом
-            // (apple-style undecorated + custom AppTitleBar для Win) когда
-            // будет время на полное тестирование.
+            // §0.10.26 — RETRY Win dark title bar. В 0.10.4 был reverted
+            // т.к. ломал KCEF Sheets webview (DWM compositor invalidation).
+            // Сейчас Sheets на WebView2 (не KCEF) — попробуем снова.
+            // Если ломает Sheets рендер — rollback в 0.10.27.
+            else if (System.getProperty("os.name", "").lowercase().contains("win")) {
+                runCatching {
+                    com.example.otlhelper.desktop.sheets.nativeweb.WinDarkTitleBar.apply(window)
+                }
+            }
             onDispose { }
         }
 

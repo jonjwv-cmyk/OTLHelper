@@ -117,10 +117,16 @@ fun SheetsWorkspace(
     //     назад, overlay уходит, можно работать. Lock держится в фоне до
     //     завершения скрипта; вернётся на locked tab → снова закрыто.
     val currentTabLocked = actionLock?.lockedTabRawNames?.contains(activeTabName) == true
-    // Browser скрываем только когда нужна полноценная защитная загрузка/lock.
+    // §0.10.26 — externalSplash добавлен в hide-условия. Без него на Win
+    // webview HWND оставался видимым под cat splash → юзер видел чёрный
+    // квадрат за котом (Mac WKWebView managed differently, не страдал).
+    val externalSplashVisible by SheetsViewBridge.externalSplashOverlay.collectAsState()
+    // Browser скрываем когда нужна полноценная защитная загрузка/lock,
+    // ИЛИ когда показывается cat splash (externalSplash).
     // Password/logout/search остаются поверх живой таблицы с CSS blur.
     val needsWebviewHide = currentTabLocked ||
         isReloading ||
+        externalSplashVisible ||
         loginChoice == GoogleLoginChoice.Detecting ||
         showLogoutConfirm ||
         pendingPasswordAction != null

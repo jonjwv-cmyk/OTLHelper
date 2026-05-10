@@ -136,9 +136,10 @@ fun UserManagementSheet(
 
 @Composable
 private fun UserRow(u: UsersRepository.User, onActions: () -> Unit) {
-    // §TZ-DESKTOP 0.3.2 — Avatar 40→32dp, padding 12→10dp (сужаем chrome),
-    // name maxLines=1→2 (если очень длинное — переносится аккуратно, не
-    // обрезается). Login ниже компактно в одну строку с badge.
+    // §0.10.26 — формат как в Android: ФИО + RoleBadge + presence label
+    // (online / был(а) недавно / formatLastSeen) + status. Login убран —
+    // юзеры не оперируют им в UI, видна только реальная информация о
+    // присутствии и роли. Точка статуса (зелёная/жёлтая/серая) — на avatar.
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -148,12 +149,17 @@ private fun UserRow(u: UsersRepository.User, onActions: () -> Unit) {
             .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        UserAvatar(name = u.fullName, avatarUrl = u.avatarUrl, presenceStatus = u.presence, size = 32.dp)
+        UserAvatar(
+            name = u.fullName,
+            avatarUrl = u.avatarUrl,
+            presenceStatus = if (u.isActive) u.presence else "offline",
+            size = 36.dp,
+        )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 u.fullName.ifBlank { u.login },
-                color = TextPrimary,
+                color = if (u.isActive) TextPrimary else TextTertiary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
@@ -162,24 +168,60 @@ private fun UserRow(u: UsersRepository.User, onActions: () -> Unit) {
             )
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                RoleBadge(u.role)
+                Spacer(Modifier.width(6.dp))
+                val presenceLabel = when {
+                    !u.isActive -> "заблокирован"
+                    u.presence == "online" -> "онлайн"
+                    u.presence == "paused" -> "был(а) недавно"
+                    else -> formatLastSeen(u.lastSeenAt)
+                }
+                val presenceColor = when {
+                    !u.isActive -> StatusErrorBorder
+                    u.presence == "online" -> com.example.otlhelper.desktop.theme.UnreadGreen
+                    u.presence == "paused" -> com.example.otlhelper.desktop.theme.PresencePaused
+                    else -> TextTertiary
+                }
                 Text(
-                    u.login,
-                    color = TextTertiary,
+                    presenceLabel,
+                    color = presenceColor,
                     fontSize = 11.sp,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.width(6.dp))
-                RoleBadge(u.role)
-                if (!u.isActive) {
-                    Spacer(Modifier.width(6.dp))
-                    Text("заблокирован", color = StatusErrorBorder, fontSize = 10.sp, maxLines = 1)
-                }
             }
         }
         IconButton(onClick = onActions, modifier = Modifier.size(28.dp)) {
             Icon(Icons.Filled.MoreVert, null, tint = TextTertiary, modifier = Modifier.size(18.dp))
         }
+    }
+}
+
+/** §0.10.26 — last-seen timestamp humanized. Копирует логику Android
+ *  UserManagementSupport.formatLastSeen для UI consistency. */
+private fun formatLastSeen(raw: String): String {
+    if (raw.isBlank()) return "оффлайн"
+    return try {
+        val iso = if (raw.contains('T')) {
+            if (raw.endsWith("Z") || raw.contains('+')) raw else "${raw}Z"
+        } else {
+            "${raw.replace(' ', 'T')}Z"
+        }
+        val zdt = java.time.ZonedDateTime.parse(iso)
+        val diff = java.time.Duration.between(zdt.toInstant(), java.time.Instant.now())
+        val mins = diff.toMinutes()
+        when {
+            mins < 1 -> "только что"
+            mins < 60 -> "${mins} мин назад"
+            mins < 24 * 60 -> "${mins / 60}ч назад"
+            mins < 7 * 24 * 60 -> "${mins / (24 * 60)} дн назад"
+            else -> {
+                val yek = zdt.withZoneSameInstant(java.time.ZoneId.of("Asia/Yekaterinburg"))
+                yek.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+            }
+        }
+    } catch (_: Exception) {
+        "оффлайн"
     }
 }
 

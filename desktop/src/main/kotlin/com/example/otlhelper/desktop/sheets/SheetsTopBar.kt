@@ -3,6 +3,7 @@ package com.example.otlhelper.desktop.sheets
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.ui.draw.drawBehind
@@ -109,17 +110,28 @@ fun SheetsTopBar(
                 onFileChange = onFileChange,
             )
 
-            Spacer(Modifier.weight(1f))
-
-            // §TZ-DESKTOP 0.4.x — Apps Script action buttons.
-            // Пустой список → правая часть пустая. Никаких stub'ов / placeholder'ov.
-            actions.forEach { action ->
-                ActionButton(
-                    action = action,
-                    enabled = actionsEnabled,
-                    onClick = { onAction(action) },
-                )
-                Spacer(Modifier.width(6.dp))
+            // §0.10.26 — actions горизонтально-прокручиваемые.
+            // Когда custom скриптов много (workflow_sort + truck_sort +
+            // workflow_mol_vgh + tech_name + workflow + plan_mol_vgh) —
+            // не помещались в TopBar, часть была за GoogleMenu. Теперь
+            // actions — scrollable средняя зона между FileSwitcher и
+            // GoogleMenu+Refresh.
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.width(8.dp))
+                    actions.forEach { action ->
+                        ActionButton(
+                            action = action,
+                            enabled = actionsEnabled,
+                            onClick = { onAction(action) },
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                }
             }
 
             GoogleSheetsNativeMenu.entries.forEach { menu ->

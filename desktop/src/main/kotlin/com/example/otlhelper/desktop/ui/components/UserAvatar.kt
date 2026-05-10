@@ -121,12 +121,16 @@ fun UserAvatar(
                 )
             }
         }
+        // §0.10.26 — точка статуса всегда видна:
+        //   online → зелёная (UnreadGreen)
+        //   paused (был(а) недавно) → жёлтая (PresencePaused)
+        //   offline / другое → серая (TextTertiary)
         val dotColor = when (presenceStatus) {
             "online" -> UnreadGreen
             "paused" -> PresencePaused
-            else -> null
+            else -> com.example.otlhelper.desktop.theme.TextTertiary
         }
-        if (dotColor != null) {
+        run {
             val dotSize = (size.value * 0.28f).dp.coerceAtLeast(9.dp)
             Box(
                 modifier = Modifier

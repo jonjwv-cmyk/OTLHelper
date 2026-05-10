@@ -110,9 +110,13 @@ fun ExtensionPromptDialog(
     onExtend: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // §0.10.26 — увеличен размер окна (220→320 высота). На Win
+    // native title bar (~30dp) + DpSize 220 не хватало места для
+    // bottom button "Завершить сессию". Юзер видел дефис "-"
+    // вместо обрезанной нижней кнопки.
     val state = rememberDialogState(
         position = WindowPosition(Alignment.Center),
-        size = DpSize(440.dp, 220.dp),
+        size = DpSize(460.dp, 320.dp),
     )
     DialogWindow(
         onCloseRequest = onDismiss,

@@ -91,7 +91,9 @@ fun SoftUpdateDialog(
         onDispose { job?.cancel() }
     }
 
-    val dialogState = rememberDialogState(size = DpSize(440.dp, 280.dp))
+    // §0.10.26 — высота 280→360. На Win native title bar + текст
+    // (3 строки описания) + progress bar + button не помещались.
+    val dialogState = rememberDialogState(size = DpSize(460.dp, 360.dp))
 
     DialogWindow(
         onCloseRequest = {

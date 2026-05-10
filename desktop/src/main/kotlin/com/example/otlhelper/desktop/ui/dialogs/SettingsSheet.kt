@@ -149,7 +149,10 @@ fun SettingsSheet(
 
 @Composable
 private fun UpdateConfirmDialog(onYes: () -> Unit, onNo: () -> Unit) {
-    val state = rememberDialogState(size = DpSize(400.dp, 220.dp))
+    // §0.10.26 — увеличен размер 220→320. Native title bar Win + 24dp
+    // padding + text 3 lines + spacers + buttons 44dp не помещались
+    // в 220dp → юзер видел кнопки "Нет"/"Да" обрезанными снизу.
+    val state = rememberDialogState(size = DpSize(440.dp, 340.dp))
     DialogWindow(
         onCloseRequest = onNo,
         state = state,
@@ -158,7 +161,7 @@ private fun UpdateConfirmDialog(onYes: () -> Unit, onNo: () -> Unit) {
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .background(com.example.otlhelper.desktop.theme.BgElevated)
                 .padding(24.dp),
         ) {
