@@ -53,7 +53,13 @@ class WsClient(
     var onUnreadUpdate: () -> Unit = {}
 
     /** Изменилось presence-статус одного из пользователей (online/paused/offline). */
-    var onPresenceChange: () -> Unit = {}
+    /**
+     * §0.11.0 — targeted presence update. Сигнатура (login, status, lastSeenAt)
+     * чтобы Repository мог точечно обновить именно нужного user'а без полного
+     * refresh. Раньше callback был без параметров → каллер делал тяжёлый
+     * inbox.refresh() на каждое presence событие.
+     */
+    var onPresenceChange: (login: String, status: String, lastSeenAt: String) -> Unit = { _, _, _ -> }
 
     /** Новая новость/опрос в ленте или обновление (vote/reaction/pin/edit). */
     var onNewsUpdate: () -> Unit = {}
@@ -175,8 +181,12 @@ class WsClient(
                 scope.launch(Dispatchers.Main) { onNewMessage(from) }
             }
             "unread_update" -> scope.launch(Dispatchers.Main) { onUnreadUpdate() }
-            "presence_change", "presence_update" ->
-                scope.launch(Dispatchers.Main) { onPresenceChange() }
+            "presence_change", "presence_update" -> {
+                val login = json.optString("login")
+                val status = json.optString("status").ifBlank { "online" }
+                val lastSeenAt = json.optString("last_seen_at")
+                scope.launch(Dispatchers.Main) { onPresenceChange(login, status, lastSeenAt) }
+            }
             "new_news", "news_update", "news_edit", "news_delete",
             "news_pin", "news_unpin", "news_react", "news_vote",
             "scheduled_sent" ->

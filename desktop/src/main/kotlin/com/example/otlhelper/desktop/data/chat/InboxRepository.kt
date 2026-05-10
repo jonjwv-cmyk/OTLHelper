@@ -101,6 +101,20 @@ class InboxRepository(private val scope: CoroutineScope) {
         }
     }
 
+    /**
+     * §0.11.0 — targeted presence update. WS event `presence_change` точечно
+     * обновляет sender_presence у всех row где senderLogin совпадает —
+     * без full refresh. UI dot цвет меняется мгновенно.
+     */
+    fun updateSenderPresence(login: String, status: String) {
+        if (login.isBlank()) return
+        val current = _state.value
+        val updated = current.rows.map { r ->
+            if (r.senderLogin == login) r.copy(senderPresence = status) else r
+        }
+        _state.value = current.copy(rows = updated)
+    }
+
     fun stop() {
         pollJob?.cancel()
         pollJob = null

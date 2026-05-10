@@ -605,8 +605,15 @@ fun App() {
                         ws.onUnreadUpdate = {
                             scope.launch { repos.inboxRepo.refresh() }
                         }
-                        ws.onPresenceChange = {
-                            scope.launch { repos.inboxRepo.refresh() }
+                        // §0.11.0 — targeted presence update. WS event
+                        // `presence_change{login,status,last_seen_at}` →
+                        // точечно обновляет presence в InboxRepository
+                        // (chat list sender dot) и UsersRepository (UserList
+                        // dot + label) без full refresh с сервера.
+                        // Мгновенный UI update <100ms.
+                        ws.onPresenceChange = { plogin, pstatus, plastSeen ->
+                            repos.inboxRepo.updateSenderPresence(plogin, pstatus)
+                            repos.usersRepo.updatePresence(plogin, pstatus, plastSeen)
                         }
                         ws.onNewsUpdate = {
                             scope.launch { repos.newsRepo.forceRefresh() }
@@ -615,7 +622,7 @@ fun App() {
                     onDispose {
                         ws.onNewMessage = {}
                         ws.onUnreadUpdate = {}
-                        ws.onPresenceChange = {}
+                        ws.onPresenceChange = { _, _, _ -> }
                         ws.onNewsUpdate = {}
                     }
                 }

@@ -15,7 +15,7 @@ android {
         applicationId = "com.example.otlhelper"
         minSdk = 24
         targetSdk = 36
-        val appVersionName = (project.findProperty("APP_VERSION_NAME") as? String) ?: "2.1.4"
+        val appVersionName = (project.findProperty("APP_VERSION_NAME") as? String) ?: "2.5.9"
         val parts = appVersionName.split(".").map { it.toIntOrNull() ?: 0 }
         versionCode = (parts.getOrElse(0) { 0 } * 10000) + (parts.getOrElse(1) { 0 } * 100) + parts.getOrElse(2) { 0 }
         versionName = appVersionName

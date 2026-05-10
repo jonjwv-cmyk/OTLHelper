@@ -33,6 +33,23 @@ class UsersRepository(private val scope: CoroutineScope) {
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
+    /**
+     * §0.11.0 — targeted presence update. Вызывается из App.kt при WS event
+     * `presence_change`. Обновляет только presence/lastSeenAt у конкретного
+     * user'а в local list — без full refresh с сервера. Мгновенный UI update.
+     */
+    fun updatePresence(login: String, status: String, lastSeenAt: String) {
+        if (login.isBlank()) return
+        val current = _state.value
+        val updated = current.users.map { u ->
+            if (u.login == login) u.copy(
+                presence = status,
+                lastSeenAt = lastSeenAt.ifBlank { u.lastSeenAt },
+            ) else u
+        }
+        _state.value = current.copy(users = updated)
+    }
+
     suspend fun refresh() {
         _state.value = _state.value.copy(isLoading = true, lastError = "")
         try {

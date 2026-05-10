@@ -330,6 +330,29 @@ class HomeViewModel @Inject constructor(
                 if (type in INCOMING_CONTENT_PUSH_TYPES) {
                     feedbackService.receive()
                 }
+                // §0.11.0 — presence_change targeted update. WS event приходит
+                // когда юзер connect/disconnect/changes presence. Точечно
+                // обновляем presence в usersList state — UserList dots/labels
+                // меняются мгновенно. Также влияет на admin chat list (sender
+                // presence через _uiState.adminMessages refresh ниже).
+                if (type == "presence_change" || type == "presence_update") {
+                    val login = event.data["login"].orEmpty()
+                    val status = event.data["status"]?.ifBlank { null } ?: "online"
+                    val lastSeenAt = event.data["last_seen_at"].orEmpty()
+                    if (login.isNotBlank()) {
+                        _uiState.update { st ->
+                            val newUsers = st.usersList.map { u ->
+                                if (u.optString("login") == login) {
+                                    val copy = org.json.JSONObject(u.toString())
+                                    copy.put("presence_status", status)
+                                    if (lastSeenAt.isNotBlank()) copy.put("last_seen_at", lastSeenAt)
+                                    copy
+                                } else u
+                            }
+                            st.copy(usersList = newUsers)
+                        }
+                    }
+                }
                 // Route the push to the domain that owns it. First claim wins.
                 chatController.handlePush(type, event.data) ||
                     feedController.handlePush(type) ||
