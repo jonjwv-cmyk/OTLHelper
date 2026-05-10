@@ -66,13 +66,27 @@ object SheetsActionRunner {
      * старый `pollUntilDone(statusUrl, ...)` — клиент больше не знает
      * statusUrl, шлёт action_id, сервер сам fetch'ит из своей registry.
      *
-     * Returns true когда action завершён (alive=false), false если timeout.
+     * §0.11.8 — RACE FIX: paired alive-wait pattern. Раньше первый
+     * polling ответ alive=false → exit как "finished". Но Apps Script
+     * после trigger в течение 1-3 сек ещё не успел поставить флаг
+     * status='running' → возвращал status='idle' → парсилось как
+     * alive=false → клиент думал "уже всё" → котик уходил пока Apps
+     * Script только стартовал. Юзер: «макрос план перенс данные но
+     * странно некорректно кот раньше времени ушел».
+     *
+     * Фикс: ждём сначала alive=true (max graceAttempts), потом alive=false.
+     * Если alive=true так и не пришёл за grace period — exit как done
+     * (Apps Script возможно завершился очень быстро или не запустился).
+     *
+     * Returns true когда action завершён, false если timeout.
      */
     suspend fun pollUntilDoneViaServer(
         actionId: String,
         intervalMs: Long = 2_000,
         maxAttempts: Int = 90,
+        graceAttempts: Int = 5,  // первые 10 сек ждём alive=true до считания alive=false как done
     ): Boolean = withContext(Dispatchers.IO) {
+        var seenAlive = false
         repeat(maxAttempts) { attempt ->
             kotlinx.coroutines.delay(intervalMs)
             val alive = runCatching {
@@ -82,12 +96,21 @@ object SheetsActionRunner {
                 if (!resp.optBoolean("ok", false)) return@runCatching true
                 resp.optBoolean("alive", true)
             }.getOrDefault(true)
-            if (!alive) {
-                System.err.println("[OTLD][poll] $actionId finished after ${attempt + 1} attempts")
+
+            if (alive) {
+                seenAlive = true
+                return@repeat
+            }
+            // alive=false. Exit только если уже видели alive=true (нормальное
+            // завершение работы) ИЛИ grace period истёк (Apps Script не
+            // отвечает / завершился раньше первого polling).
+            if (seenAlive || attempt >= graceAttempts) {
+                System.err.println("[OTLD][poll] $actionId finished after ${attempt + 1} attempts (seenAlive=$seenAlive)")
                 return@withContext true
             }
+            // Иначе ждём — возможно Apps Script ещё не успел поставить running
         }
-        System.err.println("[OTLD][poll] $actionId timeout after $maxAttempts attempts")
+        System.err.println("[OTLD][poll] $actionId timeout after $maxAttempts attempts (seenAlive=$seenAlive)")
         false
     }
 
