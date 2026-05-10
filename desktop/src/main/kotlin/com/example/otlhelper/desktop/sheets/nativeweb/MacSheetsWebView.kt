@@ -363,11 +363,39 @@ internal fun MacSheetsWebView(
     }
 
     LaunchedEffect(slots) {
+        // §0.11.13.2 — last reinject timestamp per slot для native guardian
+        val lastReinject = mutableMapOf<String, Long>()
+        val NATIVE_GUARDIAN_INTERVAL_MS = 3_000L
         while (true) {
             delay(180)
             val snapshot = slots.values.toList()
             withContext(Dispatchers.IO) {
                 snapshot.forEach { slot -> slot.state.refresh() }
+            }
+
+            // §0.11.13.2 — native-level mask guardian.
+            // JS-side guardian (MutationObserver + setInterval в SheetsCss)
+            // НЕ ВЫЖИВАЕТ если Google делает full reload (revision restore через
+            // File → History → Restore — реальная история, заскринено юзером
+            // 2026-05-10). JavaScript context уничтожается, наш window.__otldCss/
+            // __otldMaskGuardian умирают вместе с document'ом. Новый document
+            // не получает наш guardian → CSS-маска отсутствует.
+            //
+            // Native polling здесь вызывает MASK_REINJECT_IF_MISSING каждые 3
+            // сек на ВСЕХ revealed slots. Скрипт idempotent: проверяет
+            // <style id="otld-sheets-mask">, делает no-op если есть, иначе
+            // INJECT_JS заново. Худший case — юзер видит сырой Sheets
+            // chrome ≤3 сек, потом всё восстановится.
+            for (s in snapshot) {
+                if (!s.initialized || !s.revealed) continue
+                val now = System.currentTimeMillis()
+                val last = lastReinject[s.key] ?: 0L
+                if (now - last >= NATIVE_GUARDIAN_INTERVAL_MS) {
+                    lastReinject[s.key] = now
+                    withContext(Dispatchers.IO) {
+                        s.state.evaluateJavaScript(SheetsCss.MASK_REINJECT_IF_MISSING)
+                    }
+                }
             }
 
             val slot = activeKey?.let { slots[it] } ?: continue

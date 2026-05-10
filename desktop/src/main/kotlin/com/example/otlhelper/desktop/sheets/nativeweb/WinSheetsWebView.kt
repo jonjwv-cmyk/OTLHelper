@@ -780,6 +780,21 @@ internal fun WinSheetsWebView(
                 }
             }
             withContext(webView2Dispatcher) { state.refresh() }
+
+            // §0.11.13.2 — native-level mask guardian (см. MacSheetsWebView).
+            // JS-side guardian не выживает full reload (Google revision restore
+            // и т.п.). Native polling каждые 3 сек на revealed webview
+            // переинжектит INJECT_JS если <style id="otld-sheets-mask"> пропал.
+            // MASK_REINJECT_IF_MISSING idempotent — no-op если маска на месте.
+            if (state.webViewId != 0L && revealed && tickCount % 17 == 0) {
+                // 17 ticks × 180ms ≈ 3.06 сек
+                withContext(webView2Dispatcher) {
+                    state.evaluateJavaScript(
+                        com.example.otlhelper.desktop.sheets.SheetsCss.MASK_REINJECT_IF_MISSING
+                    )
+                }
+            }
+
             if (state.webViewId == 0L || revealed) continue
 
             val current = state.currentUrl.orEmpty()

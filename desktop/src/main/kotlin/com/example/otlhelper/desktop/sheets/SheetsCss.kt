@@ -895,6 +895,39 @@ object SheetsCss {
     """.trimIndent()
 
     /**
+     * §0.11.13.2 — Idempotent mask check + re-inject.
+     *
+     * Wrapper над INJECT_JS который сначала проверяет: если наш
+     * <style id="otld-sheets-mask"> уже присутствует в DOM — no-op.
+     * Если отсутствует (Sheets сделал full reload, например при
+     * revision restore через File → History → Restore) — выполняет
+     * полный INJECT_JS заново.
+     *
+     * Native polling в Mac/Win reveal-loop вызывает этот скрипт
+     * каждые ~3 сек когда revealed=true. Защита от ситуаций когда
+     * JavaScript context был уничтожен (window.__otldMaskGuardian
+     * не выжил), и MutationObserver-based guard не помог.
+     *
+     * Idempotent — безопасно вызывать как угодно часто.
+     */
+    val MASK_REINJECT_IF_MISSING: String = """
+        (function() {
+            try {
+                if (document.getElementById('otld-sheets-mask')) {
+                    // Маска на месте — ничего не делаем
+                    return;
+                }
+                if (!document.body && !document.documentElement) return;
+                // Маски нет — Google перерисовал DOM. Полный re-inject.
+                if (window.__otldLog) {
+                    window.__otldLog('MASK', 'native_guardian_triggered_reinject');
+                }
+            } catch (_) { return; }
+            ${INJECT_JS}
+        })();
+    """.trimIndent()
+
+    /**
      * §0.11.13 — Startup-script wrapper для AddScriptToExecuteOnDocumentCreated.
      *
      * Применяет полный [INJECT_JS] **только** на spreadsheet URL'ах.
