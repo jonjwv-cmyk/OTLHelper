@@ -53,17 +53,22 @@ fun SapLauncherIntegration() {
         onDispose { SapClipboardLauncher.shutdown() }
     }
 
-    // §0.11.10 — Ctrl+Q listener (SAP → OTLHelper inspector)
+    // §0.11.12 — Triple Ctrl trigger (SAP → OTLHelper inspector).
+    // Раньше был RegisterHotKey Ctrl+Q (0.11.10) → Ctrl+Space (0.11.11),
+    // но Касперский HIPS panic'нул на Ctrl+Space → процесс попал в защищ-
+    // ённый режим, UI не открылся, kill требовал admin. Перешли на
+    // polling GetAsyncKeyState — это не hook, не RegisterHotKey, AV не
+    // паникует. Триггер: 3 нажатия Ctrl за 1 секунду.
     DisposableEffect(Unit) {
         if (com.example.otlhelper.desktop.BuildInfo.IS_WINDOWS) {
-            GlobalSapHotkey.start { SapInspectorController.trigger() }
+            TripleCtrlDetector.start { SapInspectorController.trigger() }
             com.example.otlhelper.desktop.core.debug.DebugLogger.log(
-                "SAP_INSPECTOR", "Ctrl+Q hotkey registered"
+                "SAP_INSPECTOR", "Triple Ctrl detector started (polling, no hook)"
             )
         }
         onDispose {
             if (com.example.otlhelper.desktop.BuildInfo.IS_WINDOWS) {
-                GlobalSapHotkey.stop()
+                TripleCtrlDetector.stop()
             }
         }
     }

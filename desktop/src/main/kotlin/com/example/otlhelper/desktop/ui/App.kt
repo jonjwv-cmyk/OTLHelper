@@ -76,6 +76,10 @@ fun App() {
                 "java=${System.getProperty("java.version")} | " +
                 "user.home=${System.getProperty("user.home")}"
         )
+        // §0.11.12 — Kaspersky/AV monitor. Логирует AV процессы +
+        // injected DLL + temp I/O latency в Desktop\otl-debug.log.
+        // Тег [AV_MONITOR]. Periodic re-scan каждую минуту.
+        com.example.otlhelper.desktop.core.debug.KasperskyMonitor.start()
     }
 
     // §0.11.9 — SAP triple Ctrl+C launcher. Глобальный hotkey listener
