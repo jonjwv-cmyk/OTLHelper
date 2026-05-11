@@ -669,13 +669,35 @@ internal fun WinSheetsWebView(
     }
 
     LaunchedEffect(composeWindow, url) {
-        WinSheetsLog.log("LaunchedEffect(composeWindow=${composeWindow?.let { "ComposeWindow@${it.windowHandle}" } ?: "null"}, url=$url) fired")
+        WinSheetsLog.log(
+            "LaunchedEffect(composeWindow=${composeWindow?.let { "ComposeWindow@${it.windowHandle}" } ?: "null"}," +
+                " url=$url) fired (webViewId=${state.webViewId} isAttached=${state.isAttached})",
+        )
         val window = composeWindow ?: run {
             WinSheetsLog.log("LaunchedEffect: composeWindow null, abort")
             return@LaunchedEffect
         }
         val isSpreadsheet = url.contains("docs.google.com/spreadsheets", ignoreCase = true)
 
+        // §0.11.14.2 — РАЗДЕЛЁННЫЕ create + attach блоки.
+        //
+        // BACKGROUND (баг 0.11.14.1): LaunchedEffect(composeWindow, url)
+        // мог fire'нуть ДВАЖДЫ. Если LE1 успел сделать createOrFail
+        // (тяжёлый ~1.1с), но не дошёл до attachToWindow до того как
+        // Compose cancellation arrived (re-fire LE2), webview оставался
+        // created но НЕ ATTACHED. LE2 видел `state.webViewId != 0L` →
+        // пропускал ВЕСЬ if-блок (включая attach + initial frame +
+        // post-attach-nudge) → сразу делал loadUrl. Результат: webview
+        // существует, DOM загружен (JS PROBE видит canvas/grid/editor),
+        // но рендер не виден на screen — нет HWND attach, нет positioning.
+        // Юзер видел чёрный экран на cold-start с persisted session.
+        //
+        // FIX: разделяем создание webview и его прикрепление к окну в
+        // независимые проверки. Даже если LE cancelled между ними — следующий
+        // LE подхватит attach. Обе операции idempotent (createOrFail возвращает
+        // 0 если уже создан; attachToWindow возвращает true если уже attached).
+
+        // 1. Create — runs если webview ещё не создан
         if (state.webViewId == 0L) {
             val status = withContext(webView2Dispatcher) { state.createOrFail() }
             if (status != 0) {
@@ -683,16 +705,22 @@ internal fun WinSheetsWebView(
                 initStatus = status
                 return@LaunchedEffect
             }
-            WinSheetsLog.log("Calling attachToWindow...")
+        }
+
+        // 2. Attach — runs если webview создан но ещё не attached к window.
+        //    Может выполниться в "продолжении" другого LE после cancellation,
+        //    если первый LE сделал create но был cancelled до attach.
+        if (state.webViewId != 0L && !state.isAttached) {
+            WinSheetsLog.log("Calling attachToWindow... (recovery=${state.webViewId != 0L && !state.isAttached})")
             val attached = withContext(webView2Dispatcher) { state.attachToWindow(window) }
             WinSheetsLog.log("attachToWindow returned $attached")
             // §0.11.14 — repaint composeWindow перед initial frame.
             // Симптом: после logout/login (state recreate → new webView2 id=2
             // attached к тому же HWND) юзер видел белый экран. Sheets DOM
-            // загружен (JS PROBE видит canvas/grid/editor), но WebView2 GPU
-            // surface не invalidate'ил area от старого webViewId=1. AWT
-            // repaint() помечает component tree dirty → Compose следующим
-            // frame перерисует Box-фон → Edge получит invalidation event.
+            // загружен, но WebView2 GPU surface не invalidate'ил area от
+            // старого webViewId=1. AWT repaint() помечает component tree
+            // dirty → Compose следующим frame перерисует Box-фон → Edge
+            // получит invalidation event.
             runCatching {
                 javax.swing.SwingUtilities.invokeLater {
                     window.repaint()
@@ -712,15 +740,9 @@ internal fun WinSheetsWebView(
                 state.updateFrame(initialBounds, density.density)
             }
             // §0.11.14 — POST-ATTACH DOUBLE-NUDGE для борьбы с HWND residue.
-            // После logout/login новый WebView2 attached к тому же HWND, но
-            // GPU surface остаётся с артефактами старого webview (на скрине 2
-            // видна полоска вдоль левого края). Один updateFrame с initial
-            // bounds недостаточно — Edge не репеинтит уже "видимую" area.
-            // Nudge: bounds → shrink 2px → bounds. ResizeObserver fires
-            // → Edge force-repaints surface → residue очищается.
-            //
-            // delay 80ms — empirical минимум который Edge успевает обработать
-            // (тот же интервал в pre-reveal-nudge на line 952).
+            // bounds → shrink 2px → bounds (delay 80ms между шагами).
+            // ResizeObserver на WebView2 fires → Edge force-repaints surface
+            // → residue от старого webview очищается.
             val nudgeBase = pendingBounds ?: initialBounds
             if (nudgeBase.width >= 30f && nudgeBase.height >= 30f) {
                 kotlinx.coroutines.delay(80)
@@ -744,6 +766,12 @@ internal fun WinSheetsWebView(
                     "applied bounds=${nudgeBase.width.toInt()}x${nudgeBase.height.toInt()}",
                 )
             }
+        } else if (state.webViewId != 0L && state.isAttached) {
+            // §0.11.14.2 — diagnostic log: skipping attach (already done).
+            // Помогает увидеть когда LE re-fire происходит после success path.
+            WinSheetsLog.log(
+                "skip attach: webViewId=${state.webViewId} already isAttached=true",
+            )
         }
 
         val controller = WinSheetsBrowserController(
