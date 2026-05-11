@@ -46,6 +46,16 @@ class OtlApp : Application(), SingletonImageLoader.Factory {
         // делом, до любого другого кода который может бросить исключение.
         CrashHandler.install(telemetry)
 
+        // §0.11.x — global TelemetryHook для модулей вне Hilt scope
+        // (например ExoPlayer DataSource'ы создаются ExoPlayer factory без DI).
+        // EncBlobDataSource / VideoCache могут вызывать TelemetryHook.event(...)
+        // чтобы фиксировать download/decrypt timings, ExoPlayer errors,
+        // playback start латенси. Все события идут в user_activity через
+        // PendingAction → server batch flush на heartbeat'е.
+        com.example.otlhelper.core.telemetry.TelemetryHook.emitter = { eventType, payload ->
+            telemetry.event(eventType, payload)
+        }
+
         // §TZ-2.3.31 Phase 4c — APK hardening. В release убивает процесс,
         // если APK debuggable, подключён отладчик, или cert не совпадает.
         com.example.otlhelper.core.security.IntegrityGuard.enforceOrDie(this)

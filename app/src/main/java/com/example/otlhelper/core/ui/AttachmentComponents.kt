@@ -549,6 +549,7 @@ fun InlineVideoPlayer(
     val hostView = androidx.compose.ui.platform.LocalView.current
 
     val exoPlayer = remember(url) {
+        val createT0 = System.currentTimeMillis()
         ExoPlayer.Builder(context)
             // Cache-aware media source factory — videos stream through SimpleCache
             // so replays hit local disk (instant, no data)
@@ -558,6 +559,40 @@ fun InlineVideoPlayer(
                 repeatMode = Player.REPEAT_MODE_ONE
                 // Start muted — will be unmuted the moment we detect full visibility
                 volume = 0f
+                // §0.11.x — telemetry на ошибки ExoPlayer (codec/source/decode).
+                // На реальных устройствах HW decoder может не понимать
+                // specific H.264 profile — мы увидим в server logs через
+                // user_activity и сможем решить нужно ли faststart на server.
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        com.example.otlhelper.core.telemetry.TelemetryHook.event(
+                            "media_playback_error",
+                            mapOf(
+                                "host" to (runCatching { android.net.Uri.parse(url).host }.getOrNull() ?: "-"),
+                                "error_code_name" to error.errorCodeName,
+                                "error_code" to error.errorCode,
+                                "error_class" to error.javaClass.simpleName,
+                                "error_msg" to (error.message?.take(140) ?: ""),
+                                "cause_class" to (error.cause?.javaClass?.simpleName ?: ""),
+                                "cause_msg" to (error.cause?.message?.take(140) ?: ""),
+                                "ms_since_create" to (System.currentTimeMillis() - createT0),
+                            ),
+                        )
+                    }
+                    override fun onPlaybackStateChanged(state: Int) {
+                        if (state == Player.STATE_READY) {
+                            // Только первый ready → измеряем time-to-first-frame.
+                            com.example.otlhelper.core.telemetry.TelemetryHook.event(
+                                "media_playback_ready",
+                                mapOf(
+                                    "host" to (runCatching { android.net.Uri.parse(url).host }.getOrNull() ?: "-"),
+                                    "ms_to_ready" to (System.currentTimeMillis() - createT0),
+                                    "duration_ms" to duration,
+                                ),
+                            )
+                        }
+                    }
+                })
                 prepare()
                 // Don't auto-play; the effect below decides based on the gate.
                 playWhenReady = false

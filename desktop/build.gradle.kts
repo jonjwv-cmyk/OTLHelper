@@ -188,30 +188,39 @@ compose.desktop {
                 Regex("""const val VERSION = "([^"]+)"""").find(txt)?.groupValues?.get(1) ?: "0.0.0"
             }
             val parts = internalVer.split('.').map { it.toIntOrNull() ?: 0 }
-            // §0.11.14.3 — packageVersion должен включать 4-ю .W часть,
-            // иначе все билды внутри одной X.Y.Z ветки имеют одинаковый
-            // ProductVersion в MSI → Windows Installer считает что версия
-            // уже установлена → silent no-op (юзер видит SmartScreen ОК →
-            // системный звук → пусто, никакого UI установщика).
+            // §1.0.1 — переход с beta-нумерации 0.X.Y.Z на стабильную 1.Y.Z.
             //
-            // MSI ProductVersion поддерживает только 3 части (Major.Minor.Build),
-            // build max 65535. Поэтому склеиваем Z и W в один build number:
-            //   "1.<Y>.<Z*100 + W>"
+            // MSI ProductVersion поддерживает Major.Minor.Build (build max 65535).
+            // Чтобы Windows Installer считал переход 0.11.14.3 → 1.0.1 как
+            // UPGRADE (а не downgrade!), packageVersion должен монотонно расти.
             //
-            // Примеры:
-            //   0.11.14   → 1.11.1400
-            //   0.11.14.1 → 1.11.1401
-            //   0.11.14.2 → 1.11.1402
+            // СТАРАЯ FORMULA для 0.X.Y.Z: "1.<Y>.<Z*100 + W>"
             //   0.11.14.3 → 1.11.1403
             //
-            // Старая формула давала 1.11.14 для всех 0.11.14.x. Новый
-            // installer (1.11.1403) > старая (1.11.14) → MSI распознаёт
-            // upgrade и запускает корректный flow.
+            // НОВАЯ FORMULA для 1.X.Y (major >= 1): "2.<X>.<Y>"
+            //   1.0.1 → 2.0.1   ← >1.11.1403 ✓ (Windows MSI считает upgrade)
+            //   1.0.2 → 2.0.2
+            //   1.1.0 → 2.1.0
+            //
+            // Юзеры в "Программы и компоненты" видят MSI ProductVersion
+            // (2.0.1), но в самом приложении (About, логи, заголовок окна)
+            // отображается BuildInfo.VERSION = "1.0.1". Это расхождение —
+            // плата за monotonic upgrade compat со старой 0.X.Y.Z схемой.
+            //
+            // Когда наберём 1.X с большим X — внутренняя формула
+            // продолжит работать (2.X.Y растёт).
+            val major = parts.getOrElse(0) { 0 }
             val minor = parts.getOrElse(1) { 0 }
             val patch = parts.getOrElse(2) { 0 }
             val subpatch = parts.getOrElse(3) { 0 }
-            val msiBuild = patch * 100 + subpatch
-            packageVersion = "1.$minor.$msiBuild"
+            packageVersion = if (major == 0) {
+                // legacy 0.X.Y.Z → старая формула (для upgrade со старых релизов)
+                val msiBuild = patch * 100 + subpatch
+                "1.$minor.$msiBuild"
+            } else {
+                // new 1.X.Y → 2.X.Y (всегда > 1.11.* старых релизов)
+                "${major + 1}.$minor.$patch"
+            }
             // §TZ-2.4.4 — короткое description (WiX не любит длинные Unicode
             // строки в MSI metadata; jpackage падает на overflow).
             description = "OTLD Helper - desktop client"
