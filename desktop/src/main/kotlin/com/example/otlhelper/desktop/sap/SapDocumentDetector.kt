@@ -21,7 +21,22 @@ import java.util.UUID
 object SapDocumentDetector {
 
     private const val TAG = "SAP_DETECT"
-    private val tempDir: File by lazy { File(System.getProperty("java.io.tmpdir")) }
+    /**
+     * §1.0.2 — VBS НЕ в %TEMP%. Раньше: `C:\Users\<user>\AppData\Local\Temp\otl_sap_detect_*.vbs`,
+     * на что Kaspersky PDM срабатывал как "not-a-virus:PDM:WebToolbar.Win32.MultiPlug.ab"
+     * (классический malware path: .vbs в Temp = быстрая download-and-execute).
+     * Теперь: `%LOCALAPPDATA%\OTLD Helper\macros\` — наша install папка,
+     * для AV выглядит как legit data dir приложения.
+     */
+    private val tempDir: File by lazy {
+        val localAppData = System.getenv("LOCALAPPDATA")
+            ?: System.getProperty("user.home", ".")
+        val dir = File(localAppData, "OTLD Helper${File.separator}macros")
+        if (!dir.exists()) dir.mkdirs()
+        // Fallback на %TEMP% если не смогли создать (например read-only fs / ACL).
+        if (dir.exists() && dir.canWrite()) dir
+        else File(System.getProperty("java.io.tmpdir"))
+    }
 
     fun detect(timeoutMs: Long = 5_000): DetectResult {
         if (!BuildInfo.IS_WINDOWS) {

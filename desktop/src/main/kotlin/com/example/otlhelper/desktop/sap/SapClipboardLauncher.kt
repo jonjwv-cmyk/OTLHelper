@@ -31,7 +31,17 @@ import java.util.UUID
 object SapClipboardLauncher {
 
     private const val TAG = "SAP_LAUNCHER"
-    private val tempDir: File by lazy { File(System.getProperty("java.io.tmpdir")) }
+    /**
+     * §1.0.2 — VBS НЕ в %TEMP% (Kaspersky PDM красный флаг). См. [SapDocumentDetector].
+     */
+    private val tempDir: File by lazy {
+        val localAppData = System.getenv("LOCALAPPDATA")
+            ?: System.getProperty("user.home", ".")
+        val dir = File(localAppData, "OTLD Helper${File.separator}macros")
+        if (!dir.exists()) dir.mkdirs()
+        if (dir.exists() && dir.canWrite()) dir
+        else File(System.getProperty("java.io.tmpdir"))
+    }
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val _events = MutableStateFlow<SapLauncherEvent?>(null)

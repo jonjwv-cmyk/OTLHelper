@@ -87,6 +87,25 @@ object KasperskyMonitor {
 
     @Volatile private var monitorThread: Thread? = null
 
+    /**
+     * §1.0.2 — stealth mode. Без `OTLD_DIAG=1` отключены **periodic**
+     * probes (tasklist каждую минуту + latencyProbe каждые 5 мин), потому
+     * что они **сами триггерят** Kaspersky PDM на корп-машинах:
+     *   • `tasklist /FO CSV /NH` — process enumeration → PDM красный флаг
+     *   • `cmd /c echo` — child process spawn → PDM суммирует
+     *   • `DNS resolve api.otlhelper.com` + `TCP connect 127.0.0.1:1` —
+     *     network probes → PDM считает botnet checkin
+     *
+     * Initial scan на старте остаётся (он одноразовый, не паттерн), плюс
+     * один scan через 30 мин для long-running detection.
+     *
+     * Verbose mode: OTLD_DIAG=1 → возвращается старое поведение
+     * (full periodic monitoring для диагностики у дев-юзера).
+     */
+    private val verboseAv: Boolean by lazy {
+        System.getenv("OTLD_DIAG")?.lowercase() in setOf("1", "true", "yes", "on")
+    }
+
     fun start() {
         if (monitorThread?.isAlive == true) return
         if (!BuildInfo.IS_WINDOWS) {
@@ -96,26 +115,38 @@ object KasperskyMonitor {
 
         val thread = Thread({
             try {
-                // Initial deep scan
+                // Initial deep scan (одноразовый, не паттерн).
                 DebugLogger.log(TAG, "===== INITIAL AV SCAN =====")
                 scanProcesses(initial = true)
                 scanLoadedDlls()
                 logEnvironment()
                 logExecutableLocation()
-                latencyProbe(initial = true)
+                // §1.0.2 — initial latencyProbe только в verbose mode (cmd spawn
+                // на старте + DNS + TCP — суммарно 3 suspicious actions подряд,
+                // PDM hookает первое же поведение нового процесса).
+                if (verboseAv) {
+                    latencyProbe(initial = true)
+                }
                 DebugLogger.log(TAG, "===== INITIAL AV SCAN END =====")
 
-                // Periodic re-scan. Каждые 60s: process list. Каждые 5 мин (5й
-                // цикл): полный latency probe — измеряем cmd spawn / file I/O /
-                // network connect, чтобы видеть "тормозит ли AV". §0.11.14.1
-                var cycle = 0
-                while (!Thread.currentThread().isInterrupted) {
-                    Thread.sleep(PERIODIC_INTERVAL_MS)
-                    cycle++
-                    scanProcesses(initial = false)
-                    if (cycle % 5 == 0) {
-                        latencyProbe(initial = false)
+                // §1.0.2 — periodic re-scan ОТКЛЮЧЁН по умолчанию.
+                // С verbose: каждые 60s tasklist + каждые 5 мин latencyProbe (старое поведение)
+                // Без verbose: один scan через 30 мин для long-running detection
+                if (verboseAv) {
+                    var cycle = 0
+                    while (!Thread.currentThread().isInterrupted) {
+                        Thread.sleep(PERIODIC_INTERVAL_MS)
+                        cycle++
+                        scanProcesses(initial = false)
+                        if (cycle % 5 == 0) {
+                            latencyProbe(initial = false)
+                        }
                     }
+                } else {
+                    // Stealth: один scan через 30 мин — поймать если AV запустился позже
+                    Thread.sleep(30 * 60 * 1000L)
+                    scanProcesses(initial = false)
+                    DebugLogger.log(TAG, "stealth mode: no further periodic scans")
                 }
             } catch (_: InterruptedException) {
                 DebugLogger.log(TAG, "monitor thread interrupted (shutdown)")

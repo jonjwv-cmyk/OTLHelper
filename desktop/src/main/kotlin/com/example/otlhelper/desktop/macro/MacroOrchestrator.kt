@@ -142,11 +142,34 @@ object MacroOrchestrator {
         }
         com.example.otlhelper.desktop.core.debug.DebugLogger.log("MACRO", "bundle OK: vbs ${vbsSource.length} chars, token ${macroToken.length} chars")
 
-        // 2. Подготавливаем temp файлы (VBS + output TSV)
-        val tempDir = File(System.getProperty("java.io.tmpdir"))
+        // 2. Подготавливаем temp файлы (VBS + output TSV).
+        //
+        // §1.0.2 — VBS перенесён из %TEMP% в %LOCALAPPDATA%\OTLD Helper\macros\.
+        // Касперский PDM **paranoid** про *.vbs в %TEMP% (классический malware
+        // path: download to temp → execute), и срабатывал на каждый запуск
+        // макроса как "not-a-virus:PDM:WebToolbar.Win32.MultiPlug.ab".
+        // Наша install папка (LOCALAPPDATA\OTLD Helper) выглядит "legit" —
+        // если приложение уже terпимое для AV, VBS в подпапке менее
+        // подозрительные.
+        val macrosDir = run {
+            val localAppData = System.getenv("LOCALAPPDATA")
+                ?: System.getProperty("user.home", ".")
+            val dir = File(localAppData, "OTLD Helper${File.separator}macros")
+            if (!dir.exists()) dir.mkdirs()
+            // Fallback на %TEMP% если по какой-то причине не смогли создать
+            // (read-only filesystem, ACL issue) — макрос важнее AV-stealth.
+            if (dir.exists() && dir.canWrite()) dir
+            else File(System.getProperty("java.io.tmpdir"))
+        }
         val sessionId = UUID.randomUUID().toString().take(12)
-        val vbsFile = File(tempDir, "otl_macro_${sessionId}.vbs")
-        val outputFile = File(tempDir, "otl_macro_out_${sessionId}.txt")
+        val vbsFile = File(macrosDir, "otl_macro_${sessionId}.vbs")
+        val outputFile = File(macrosDir, "otl_macro_out_${sessionId}.txt")
+        com.example.otlhelper.desktop.core.debug.DebugLogger.event(
+            "MACRO",
+            "phase" to "prepare_paths",
+            "macros_dir" to macrosDir.absolutePath.takeLast(80),
+            "fallback" to (macrosDir.absolutePath.contains("Temp", ignoreCase = true)),
+        )
 
         try {
             vbsFile.writeText(vbsSource, Charsets.UTF_8)
@@ -192,17 +215,31 @@ object MacroOrchestrator {
                 // Не DISCARD — читаем для diagnostic
             }.start()
 
-            com.example.otlhelper.desktop.core.debug.DebugLogger.log(
-                "MACRO", "Step 3: cscript spawned, vbs=${vbsFile.absolutePath}, output=${outputFile.absolutePath}"
+            val spawnedAt = System.currentTimeMillis()
+            // §0.11.15 — структурированный event с timing/pid/paths.
+            com.example.otlhelper.desktop.core.debug.DebugLogger.event(
+                "MACRO",
+                "phase" to "cscript_spawned",
+                "pid" to (runCatching { proc.pid() }.getOrDefault(-1L)),
+                "vbs" to vbsFile.absolutePath.takeLast(80),
+                "output" to outputFile.absolutePath.takeLast(80),
             )
 
             val finished = proc.waitFor(MACRO_TIMEOUT_SEC, TimeUnit.SECONDS)
+            val durationMs = System.currentTimeMillis() - spawnedAt
             val cscriptOutput = runCatching {
                 proc.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText().take(1500) }
             }.getOrDefault("(no output captured)")
 
-            com.example.otlhelper.desktop.core.debug.DebugLogger.log(
-                "MACRO", "cscript finished=$finished exit=${if (finished) proc.exitValue() else -1} stderr=${cscriptOutput.take(200)}"
+            // §0.11.15 — финальный event с exit_code и duration.
+            com.example.otlhelper.desktop.core.debug.DebugLogger.event(
+                "MACRO",
+                "phase" to "cscript_finished",
+                "finished" to finished,
+                "ms" to durationMs,
+                "exit" to (if (finished) proc.exitValue() else -1),
+                "stdout_len" to cscriptOutput.length,
+                "stdout_tail" to cscriptOutput.takeLast(120).replace('\n', ' ').replace('\r', ' '),
             )
 
             if (!finished) {
