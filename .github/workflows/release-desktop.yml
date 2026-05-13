@@ -412,6 +412,46 @@ jobs:
         run: |
           KEY="desktop/win/otl-helper-${{ inputs.version }}.exe"
           wrangler r2 object put "$R2_BUCKET/$KEY" --file="${{ steps.sha.outputs.installer }}" --remote
+      # §1.0.2 — собираем PORTABLE ZIP (app-image без installer).
+      # Юзеры на корп-машинах с Kaspersky PDM могут запускать без установки:
+      # распаковать в любую папку (Documents / Downloads / флешка) → exe прямо.
+      # Меньше "MultiPlug indicators" для PDM чем installer-deployed app
+      # в %LOCALAPPDATA%.
+      - name: Build portable app-image (no installer)
+        shell: bash
+        run: ./gradlew :desktop:createReleaseDistributable --no-daemon
+      - name: Pack portable to ZIP
+        id: portable
+        shell: bash
+        run: |
+          set +o pipefail
+          # createReleaseDistributable кладёт результат в
+          # desktop/build/compose/binaries/main-release/app/<AppName>/
+          APP_PARENT=$(find desktop/build/compose/binaries/main-release/app -maxdepth 1 -type d -name "OTLD*" | head -n1)
+          set -o pipefail
+          if [ -z "$APP_PARENT" ]; then
+            echo "::error::App-image directory not found"
+            ls -la desktop/build/compose/binaries/main-release/app/ 2>&1 || true
+            exit 1
+          fi
+          ZIP_NAME="otl-helper-${{ inputs.version }}-portable.zip"
+          cd "$(dirname "$APP_PARENT")"
+          # Используем 7-Zip который предустановлен на Windows GitHub runners.
+          7z a -tzip "$ZIP_NAME" "$(basename "$APP_PARENT")" > /dev/null
+          ZIP_PATH="$(pwd)/$ZIP_NAME"
+          cd -
+          ZIP_SHA=$(sha256sum "$ZIP_PATH" | awk '{print $1}')
+          echo "zip=$ZIP_PATH" >> "$GITHUB_OUTPUT"
+          echo "zip_sha=$ZIP_SHA" >> "$GITHUB_OUTPUT"
+          echo "Portable ZIP ready: $ZIP_PATH (sha=$ZIP_SHA)"
+      - name: Upload portable ZIP to R2
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          KEY="desktop/win/otl-helper-${{ inputs.version }}-portable.zip"
+          wrangler r2 object put "$R2_BUCKET/$KEY" --file="${{ steps.portable.outputs.zip }}" --remote
       - name: Update D1 desktop-win row
         if: ${{ inputs.dev_build != 'yes' }}
         shell: bash
